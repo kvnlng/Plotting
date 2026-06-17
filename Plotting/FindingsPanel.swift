@@ -52,7 +52,6 @@ struct FindingsPanel: View {
             Divider()
             findingsList
         }
-        .frame(minWidth: 280)
     }
 
     private var header: some View {

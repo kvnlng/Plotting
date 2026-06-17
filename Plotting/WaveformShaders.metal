@@ -35,6 +35,21 @@ struct EnvelopeUniforms {
     float binSamples;
 };
 
+/// Trace pass needs viewport pixel size and a desired line width because Metal
+/// has no built-in `glLineWidth` equivalent — we extrude each sample into a
+/// 2-vertex ribbon and render as a triangle strip, with the perpendicular
+/// computed in screen-pixel space so the trace looks the same thickness at
+/// every zoom.
+struct TraceUniforms {
+    float startSample;
+    float endSample;
+    float yMin;
+    float yMax;
+    float2 viewportSizePx;
+    float lineWidthPx;
+    uint sampleCount;
+};
+
 struct VertexOut {
     float4 position [[position]];
 };
@@ -45,20 +60,80 @@ static float4 toClipSpace(float xData, float yData, constant Uniforms& u) {
     return float4(xClip, yClip, 0.0, 1.0);
 }
 
+/// Trace ribbon vertex shader. Each input sample produces two vertices
+/// (top + bottom) that the rasterizer joins into a quad with its neighbor —
+/// effectively a polyline with a configurable on-screen pixel width.
+///
+/// The perpendicular at each sample is computed from the screen-space
+/// direction to a neighbor (next when available, prev at the buffer end).
+/// Out-of-range samples emit NaN positions for both vertices so the ribbon
+/// gaps cleanly at off-scale events.
 vertex VertexOut traceVertex(uint vid [[vertex_id]],
-                             constant float* samples [[buffer(0)]],
-                             constant Uniforms& u [[buffer(1)]]) {
+                              constant float* samples [[buffer(0)]],
+                              constant TraceUniforms& u [[buffer(1)]]) {
     VertexOut out;
-    float yData = samples[vid];
-    // Drop out-of-range samples: emit a NaN position so any line-strip segment
-    // adjacent to this vertex is discarded by the rasterizer. We never paint
-    // a fake horizontal segment along the chart edge — the trace just gaps.
+    uint sampleIdx = vid / 2u;
+    float side = (vid & 1u) != 0u ? -1.0 : 1.0;       // +1 above, -1 below
+
+    if (sampleIdx >= u.sampleCount) {
+        float nanV = 0.0 / 0.0;
+        out.position = float4(nanV, nanV, nanV, nanV);
+        return out;
+    }
+
+    float yData = samples[sampleIdx];
     if (yData < u.yMin || yData > u.yMax) {
         float nanV = 0.0 / 0.0;
         out.position = float4(nanV, nanV, nanV, nanV);
-    } else {
-        out.position = toClipSpace(float(vid), yData, u);
+        return out;
     }
+
+    // Clip-space position of this sample.
+    float spanX = u.endSample - u.startSample;
+    float spanY = u.yMax - u.yMin;
+    float xClip = 2.0 * (float(sampleIdx) - u.startSample) / spanX - 1.0;
+    float yClip = 2.0 * (yData - u.yMin) / spanY - 1.0;
+
+    // Pick the neighbor we'll derive direction from. Prefer next; fall back
+    // to prev at the last vertex.
+    uint neighborIdx;
+    if (sampleIdx + 1u < u.sampleCount) {
+        neighborIdx = sampleIdx + 1u;
+    } else if (sampleIdx > 0u) {
+        neighborIdx = sampleIdx - 1u;
+    } else {
+        // Degenerate: a single sample. No direction → no offset.
+        out.position = float4(xClip, yClip, 0.0, 1.0);
+        return out;
+    }
+    float yNeighbor = samples[neighborIdx];
+
+    // Convert to pixel space, take the perpendicular, then convert back.
+    float xClipN = 2.0 * (float(neighborIdx) - u.startSample) / spanX - 1.0;
+    float yClipN = 2.0 * (yNeighbor - u.yMin) / spanY - 1.0;
+
+    float2 halfViewport = u.viewportSizePx * 0.5;
+    float2 thisPx = float2(xClip,  yClip)  * halfViewport;
+    float2 neighPx = float2(xClipN, yClipN) * halfViewport;
+
+    float2 dir = neighPx - thisPx;
+    float len = max(length(dir), 1e-6);
+    dir /= len;
+
+    // Perpendicular (90° rotation). For a `next`-neighbor we want the same
+    // sign as `side`; for a `prev`-neighbor we invert because the segment
+    // direction flips. Without this, the last vertex's ribbon would be on
+    // the wrong side of the trace.
+    float orientation = (sampleIdx + 1u < u.sampleCount) ? 1.0 : -1.0;
+    float2 perp = float2(-dir.y, dir.x) * side * orientation;
+
+    // Offset by half the requested width in pixels, converted back to clip.
+    float2 offsetPx = perp * (u.lineWidthPx * 0.5);
+    float2 offsetClip = offsetPx / halfViewport;
+
+    out.position = float4(xClip + offsetClip.x,
+                          yClip + offsetClip.y,
+                          0.0, 1.0);
     return out;
 }
 

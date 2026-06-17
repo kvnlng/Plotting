@@ -122,6 +122,31 @@ struct WFDBHeaderParserTests {
         #expect(header.recordName == "rec")
         #expect(header.signals.count == 1)
     }
+
+    @Test("Preserves header comments in order with the # stripped")
+    func preservesHeaderComments() throws {
+        // MIT-BIH 100-style: demographics then meds.
+        let hea = """
+        # 69 M 1085 1629 x1
+        # Aldomet, Inderal
+        100 2 360 650000
+        100.dat 212 200 11 1024 995 -22131 0 MLII
+        100.dat 212 200 11 1024 1011 20052 0 V5
+        """
+        let header = try WFDBHeaderParser.parse(text: hea)
+        #expect(header.comments == ["69 M 1085 1629 x1", "Aldomet, Inderal"])
+    }
+
+    @Test("Empty file with only comments still throws — comments are metadata, not data")
+    func commentsAloneIsEmptyFile() {
+        let hea = """
+        # comment only
+        # nothing else
+        """
+        #expect(throws: WFDBHeaderError.self) {
+            try WFDBHeaderParser.parse(text: hea)
+        }
+    }
 }
 
 // MARK: - WFDB sample decoder
@@ -336,6 +361,46 @@ struct WFDBImporterTests {
         #expect(throws: WFDBImportError.self) {
             try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
         }
+    }
+
+    @Test("Imports header comments into the Recording")
+    func importsHeaderComments() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+        // Append a couple of comment lines to the synthetic .hea.
+        var heaText = try String(contentsOf: heaURL, encoding: .utf8)
+        heaText = "# Synthetic patient\n# Protocol: 8-lead ECG\n" + heaText
+        try heaText.write(to: heaURL, atomically: true, encoding: .utf8)
+
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        #expect(summary.recording.headerComments == ["Synthetic patient", "Protocol: 8-lead ECG"])
+    }
+
+    @Test("Copies source notes.md into the bundle and exposes its filename")
+    func copiesSourceNotesIntoBundle() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+        let notesURL = srcDir.appendingPathComponent("synth.notes.md")
+        let originalNotes = "# Synthetic record\n\n- Holter, 30 min\n- Reviewer: KL\n"
+        try originalNotes.write(to: notesURL, atomically: true, encoding: .utf8)
+
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        let notesFileName = try #require(summary.recording.notesFileName)
+        let bundleNotesURL = summary.directory.appendingPathComponent(notesFileName)
+        let copied = try String(contentsOf: bundleNotesURL, encoding: .utf8)
+        #expect(copied == originalNotes)
     }
 }
 
@@ -856,8 +921,20 @@ struct ECGGridSpecTests {
         let spec = ECGGridSpec.forDuration(seconds: 10)
         #expect(spec.xMinor == 0.04)
         #expect(spec.xMajor == 0.2)
+        #expect(spec.xLandmark == 1.0)        // every 5th major = 1 s
         #expect(spec.yMinor == 0.1)
         #expect(spec.yMajor == 0.5)
+        #expect(spec.yLandmark == 2.5)        // every 5th major = 2.5 mV
+    }
+
+    @Test("Landmark is always 5x the major across every tier")
+    func landmarkIsFiveTimesMajor() {
+        let durations: [Double] = [10, 60, 600, 5_000, 10_000]
+        for d in durations {
+            let spec = ECGGridSpec.forDuration(seconds: d)
+            #expect(abs(spec.xLandmark / spec.xMajor - 5.0) < 0.01,
+                    "x landmark / major != 5 at duration \(d)")
+        }
     }
 
     @Test("30s–5min steps up to 0.2s minor / 1s major")

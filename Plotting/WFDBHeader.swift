@@ -23,6 +23,10 @@ struct WFDBHeader: Equatable, Sendable {
     let sampleCount: Int64          // samples per signal (= frames); 0 if unspecified
     let startDate: Date?
     let signals: [WFDBSignal]
+    /// `#`-prefixed lines from the source `.hea`, in order, with the `#` and
+    /// surrounding whitespace stripped. MIT-BIH puts patient demographics and
+    /// medications here.
+    let comments: [String]
 }
 
 struct WFDBSignal: Equatable, Sendable {
@@ -72,13 +76,26 @@ enum WFDBHeaderParser {
     }
 
     static func parse(text: String) throws -> WFDBHeader {
-        let lines = text.components(separatedBy: .newlines)
+        let rawLines = text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        guard !lines.isEmpty else { throw WFDBHeaderError.emptyFile }
+            .filter { !$0.isEmpty }
 
-        let (record, startDate) = try parseRecordLine(lines[0])
-        let signalLines = Array(lines.dropFirst())
+        // Capture comment lines as we go — preserved verbatim minus the
+        // leading `#` and any whitespace immediately after.
+        var comments: [String] = []
+        var dataLines: [String] = []
+        for line in rawLines {
+            if line.hasPrefix("#") {
+                let stripped = line.dropFirst().drop(while: { $0 == " " || $0 == "\t" })
+                comments.append(String(stripped))
+            } else {
+                dataLines.append(line)
+            }
+        }
+        guard !dataLines.isEmpty else { throw WFDBHeaderError.emptyFile }
+
+        let (record, startDate) = try parseRecordLine(dataLines[0])
+        let signalLines = Array(dataLines.dropFirst())
 
         if record.signalCount > 0 && signalLines.count != record.signalCount {
             throw WFDBHeaderError.signalCountMismatch(
@@ -94,7 +111,8 @@ enum WFDBHeaderParser {
             samplingFrequency: record.samplingFrequency,
             sampleCount: record.sampleCount,
             startDate: startDate,
-            signals: signals
+            signals: signals,
+            comments: comments
         )
     }
 

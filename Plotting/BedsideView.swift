@@ -20,6 +20,10 @@ struct BedsideView: View {
     @State private var viewport: RecordingViewport
     @State private var filter = FindingFilter()
     @State private var showFindings = true
+    @State private var layoutMode: BedsideLayoutMode
+    /// App-wide read/write latch. Governs the context-notes editor today and
+    /// will gate annotation create/edit/delete affordances when those land.
+    @State private var isEditing: Bool = false
 
     static let initialDurationSeconds: Double = 10
 
@@ -32,6 +36,9 @@ struct BedsideView: View {
             sampleRate: first?.sampleRate ?? 250,
             initialDurationSeconds: Self.initialDurationSeconds
         ))
+        // Default: focus the first lead. Single-lead is the typical analyst
+        // workflow; strips mode is opt-in for cross-lead comparison.
+        _layoutMode = State(initialValue: first.map { .focus($0.id) } ?? .strips)
     }
 
     /// Annotations that survive the current filter. Drives both the canvas and
@@ -40,21 +47,21 @@ struct BedsideView: View {
         recording.annotations.filter(filter.matches)
     }
 
+    private var focusedChannel: Channel? {
+        guard case .focus(let id) = layoutMode else { return nil }
+        return recording.channels.first { $0.id == id }
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                summaryHeader
-                ForEach(recording.channels) { channel in
-                    ChannelPanel(
-                        channel: channel,
-                        directory: recordingDirectory,
-                        viewport: viewport,
-                        annotations: filteredAnnotations
-                    )
-                }
-            }
-            .padding(16)
+        VStack(spacing: 0) {
+            LeadChipBar(
+                channels: recording.channels,
+                layoutMode: $layoutMode
+            )
+            Divider()
+            bedsideContent
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("bedside-view")
         .inspector(isPresented: $showFindings) {
             FindingsPanel(
@@ -63,9 +70,24 @@ struct BedsideView: View {
                 sampleRate: recording.channels.first?.sampleRate ?? 250,
                 filter: $filter
             )
-            .inspectorColumnWidth(min: 280, ideal: 320, max: 480)
+            .inspectorColumnWidth(min: 220, ideal: 320, max: 480)
         }
         .toolbar {
+            ToolbarItem {
+                Button {
+                    isEditing.toggle()
+                } label: {
+                    Label(
+                        isEditing ? "Editing" : "Locked",
+                        systemImage: isEditing ? "lock.open.fill" : "lock.fill"
+                    )
+                }
+                .help(isEditing
+                      ? "Editing on — notes and annotations are editable. Click to lock."
+                      : "Read-only. Click to unlock and edit notes and annotations.")
+                .tint(isEditing ? Color.accentColor : nil)
+                .accessibilityIdentifier("edit-mode-toggle")
+            }
             ToolbarItem {
                 Button {
                     showFindings.toggle()
@@ -78,18 +100,81 @@ struct BedsideView: View {
         }
     }
 
-    private var summaryHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(recording.device)
-                .font(.title3.weight(.semibold))
-            Text(summaryDetail)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(navigationHint)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+    @ViewBuilder
+    private var bedsideContent: some View {
+        switch layoutMode {
+        case .focus:
+            if let channel = focusedChannel {
+                VStack(alignment: .leading, spacing: 12) {
+                    summaryHeader
+                    ChannelPanel(
+                        channel: channel,
+                        directory: recordingDirectory,
+                        viewport: viewport,
+                        annotations: filteredAnnotations,
+                        sizing: .focus
+                    )
+                    .frame(maxHeight: .infinity)
+                }
+                .padding(16)
+            } else {
+                ContentUnavailableView(
+                    "No lead selected",
+                    systemImage: "waveform",
+                    description: Text("Pick a lead from the bar above.")
+                )
+            }
+        case .strips:
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    summaryHeader
+                    ForEach(recording.channels) { channel in
+                        ChannelPanel(
+                            channel: channel,
+                            directory: recordingDirectory,
+                            viewport: viewport,
+                            annotations: filteredAnnotations,
+                            sizing: .strip
+                        )
+                    }
+                }
+                .padding(16)
+            }
         }
-        .accessibilityIdentifier("bedside-summary")
+    }
+
+    private var summaryHeader: some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(recording.device)
+                    .font(.title3.weight(.semibold))
+                    .accessibilityIdentifier("bedside-summary")
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(summaryDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                Text(navigationHint)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            .frame(maxWidth: 320, alignment: .leading)
+
+            if !recording.headerComments.isEmpty || recording.notesFileName != nil {
+                RecordContextPanel(
+                    headerComments: recording.headerComments,
+                    notesURL: recording.notesFileName.map {
+                        recordingDirectory.appendingPathComponent($0)
+                    },
+                    isEditing: isEditing
+                )
+                .accessibilityIdentifier("context-panel")
+            }
+        }
     }
 
     private var summaryDetail: String {
@@ -121,38 +206,188 @@ struct BedsideView: View {
 
 // MARK: - ECG grid spec (used by both Metal renderer and SwiftUI axis overlays)
 
-/// Picks the major/minor grid spacings (in seconds / mV) for a viewport of the
-/// given duration. Adaptive density keeps the active gridline count bounded
-/// across every zoom level so reading the chart never becomes a pink wash.
+/// Picks the minor / major / landmark grid spacings (in seconds / mV) for a
+/// viewport of the given duration. Three tiers mirror standard ECG paper:
+///   • Minor    — thin lines, finest tick (e.g. 0.04 s × 0.1 mV)
+///   • Major    — every 5th minor — the calibration grid (0.2 s × 0.5 mV)
+///   • Landmark — every 5th major — the second/2.5-mV beat landmark
+///                used to find "1 second from here" at a glance.
+/// Adaptive density keeps the active gridline count bounded across every zoom
+/// level so the chart never devolves into a pink wash.
 struct ECGGridSpec: Equatable {
     let xMinor: Double          // seconds
     let xMajor: Double
+    let xLandmark: Double
     let yMinor: Double          // mV (or matching unit)
     let yMajor: Double
+    let yLandmark: Double
 
     static func forDuration(seconds: Double) -> ECGGridSpec {
+        // Landmark is always 5× the major — the standard clinical "every 5th"
+        // landmark on printed ECG paper. The y-landmark mirrors that across
+        // every tier so the chart stays clinically calibrated end-to-end.
         switch seconds {
         case ..<30:
-            return ECGGridSpec(xMinor: 0.04, xMajor: 0.2,  yMinor: 0.1, yMajor: 0.5)
+            return ECGGridSpec(
+                xMinor: 0.04, xMajor: 0.2,  xLandmark: 1.0,
+                yMinor: 0.1,  yMajor: 0.5,  yLandmark: 2.5
+            )
         case ..<300:        // up to 5 min
-            return ECGGridSpec(xMinor: 0.2,  xMajor: 1.0,  yMinor: 0.1, yMajor: 0.5)
+            return ECGGridSpec(
+                xMinor: 0.2,  xMajor: 1.0,  xLandmark: 5.0,
+                yMinor: 0.1,  yMajor: 0.5,  yLandmark: 2.5
+            )
         case ..<1800:       // up to 30 min
-            return ECGGridSpec(xMinor: 1.0,  xMajor: 5.0,  yMinor: 0.5, yMajor: 1.0)
+            return ECGGridSpec(
+                xMinor: 1.0,  xMajor: 5.0,  xLandmark: 25.0,
+                yMinor: 0.5,  yMajor: 1.0,  yLandmark: 5.0
+            )
         case ..<7200:       // up to 2 hr
-            return ECGGridSpec(xMinor: 5.0,  xMajor: 30.0, yMinor: 0.5, yMajor: 2.5)
+            return ECGGridSpec(
+                xMinor: 5.0,  xMajor: 30.0, xLandmark: 150.0,
+                yMinor: 0.5,  yMajor: 2.5,  yLandmark: 12.5
+            )
         default:
-            return ECGGridSpec(xMinor: 30.0, xMajor: 300.0, yMinor: 1.0, yMajor: 5.0)
+            return ECGGridSpec(
+                xMinor: 30.0, xMajor: 300.0, xLandmark: 1500.0,
+                yMinor: 1.0,  yMajor: 5.0,   yLandmark: 25.0
+            )
         }
+    }
+}
+
+// MARK: - Layout mode
+
+enum BedsideLayoutMode: Equatable {
+    /// Single lead, full available height — the analyst's default.
+    case focus(Channel.ID)
+    /// All leads stacked in compact strips — opt-in cross-lead comparison.
+    case strips
+}
+
+/// Horizontal lead-chip bar with a Focus/Strips mode toggle. Single-tap a lead
+/// to focus it; toggle to strips to see them all stacked.
+private struct LeadChipBar: View {
+    let channels: [Channel]
+    @Binding var layoutMode: BedsideLayoutMode
+
+    var body: some View {
+        HStack(spacing: 10) {
+            modeToggle
+            Divider().frame(maxHeight: 18)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(channels) { channel in
+                        chip(for: channel)
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.thinMaterial)
+        .accessibilityIdentifier("lead-chip-bar")
+    }
+
+    private var modeToggle: some View {
+        HStack(spacing: 2) {
+            modeButton(
+                systemImage: "rectangle.fill",
+                label: "Focus",
+                isOn: isFocusMode,
+                action: switchToFocus
+            )
+            modeButton(
+                systemImage: "rectangle.split.1x2.fill",
+                label: "Strips",
+                isOn: layoutMode == .strips,
+                action: { layoutMode = .strips }
+            )
+        }
+    }
+
+    private func modeButton(systemImage: String, label: String, isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(label, systemImage: systemImage)
+                .labelStyle(.iconOnly)
+                .font(.body)
+                .frame(width: 26, height: 22)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(isOn ? Color.accentColor.opacity(0.20) : Color.secondary.opacity(0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(isOn ? Color.accentColor : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(label)
+        .accessibilityIdentifier("layout-mode-\(label.lowercased())")
+    }
+
+    private func chip(for channel: Channel) -> some View {
+        let isFocused = (layoutMode == .focus(channel.id))
+        return Button {
+            layoutMode = .focus(channel.id)
+        } label: {
+            Text(channel.name)
+                .font(.caption.monospaced().weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(isFocused ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(isFocused ? Color.accentColor : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("lead-chip-\(channel.name)")
+    }
+
+    private var isFocusMode: Bool {
+        if case .focus = layoutMode { return true }
+        return false
+    }
+
+    private func switchToFocus() {
+        if case .focus = layoutMode { return }
+        if let first = channels.first { layoutMode = .focus(first.id) }
     }
 }
 
 // MARK: - Channel panel
 
 private struct ChannelPanel: View {
+    enum Sizing {
+        /// Strips mode — compact stacked layout. Floor is small enough that a
+        /// short window can still show a couple of leads at once.
+        case strip
+        /// Focus mode — chart fills the available vertical space. Floor is the
+        /// smallest window-height the analyst is likely to ever want.
+        case focus
+
+        var canvasMinHeight: CGFloat {
+            switch self {
+            case .strip: return 130
+            case .focus: return 220
+            }
+        }
+
+        var expands: Bool {
+            self == .focus
+        }
+    }
+
     let channel: Channel
     let directory: URL
     let viewport: RecordingViewport
     let annotations: [Annotation]
+    var sizing: Sizing = .strip
 
     @State private var canvasSize: CGSize = .zero
     @State private var clippedRanges: [ClippedRange] = []
@@ -170,9 +405,10 @@ private struct ChannelPanel: View {
             header
             HStack(alignment: .top, spacing: 0) {
                 WaveformVoltageAxis(yMin: Self.yMin, yMax: Self.yMax, durationSeconds: durationSeconds)
-                    .frame(minHeight: 160)
+                    .frame(minHeight: sizing.canvasMinHeight)
                 canvasArea
             }
+            .frame(maxHeight: sizing.expands ? .infinity : nil)
             WaveformTimeAxis(startTime: startTime, endTime: endTime)
                 .padding(.leading, 56)
             OverviewRibbon(
@@ -196,7 +432,7 @@ private struct ChannelPanel: View {
                 endSample: viewport.endSample,
                 annotations: visibleAnnotations
             )
-            .frame(minHeight: 160)
+            .frame(minHeight: sizing.canvasMinHeight, maxHeight: sizing.expands ? .infinity : nil)
 
             WaveformClippingOverlay(
                 clippedRanges: clippedRanges,

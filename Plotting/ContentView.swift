@@ -86,7 +86,7 @@ struct ContentView: View {
         NavigationSplitView {
             RecordSidebar(records: records, importStates: importStates, selection: $selection)
                 .navigationTitle(folder.lastPathComponent)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
+                .navigationSplitViewColumnWidth(min: 160, ideal: 240, max: 320)
         } detail: {
             detailPane
                 .navigationTitle(detailTitle)

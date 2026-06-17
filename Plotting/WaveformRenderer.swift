@@ -36,14 +36,34 @@ struct EnvelopeUniformsCPU {
     var binSamples: Float = 0
 }
 
+/// Matches the `TraceUniforms` struct in `WaveformShaders.metal`. The trace
+/// pass needs viewport pixel size and a desired line width because Metal can't
+/// rasterize thick line primitives natively — we extrude each sample into a
+/// 2-vertex ribbon and pick the perpendicular in screen-pixel space.
+struct TraceUniformsCPU {
+    var startSample: Float = 0
+    var endSample: Float = 1
+    var yMin: Float = -5
+    var yMax: Float = 5
+    var viewportSizePx: SIMD2<Float> = SIMD2<Float>(600, 200)
+    var lineWidthPx: Float = 2.5
+    var sampleCount: UInt32 = 0
+}
+
 // MARK: - Style
 
 struct WaveformStyle {
-    var paper:      SIMD4<Float> = SIMD4(1.00, 0.93, 0.93, 1.00)
-    var gridMinor:  SIMD4<Float> = SIMD4(0.93, 0.78, 0.78, 0.65)
-    var gridMajor:  SIMD4<Float> = SIMD4(0.82, 0.50, 0.50, 0.55)
-    var trace:      SIMD4<Float> = SIMD4(0.00, 0.00, 0.00, 1.00)
-    var envelope:   SIMD4<Float> = SIMD4(0.00, 0.00, 0.00, 0.55)
+    var paper:        SIMD4<Float> = SIMD4(1.00, 0.93, 0.93, 1.00)
+    var gridMinor:    SIMD4<Float> = SIMD4(0.93, 0.78, 0.78, 0.65)
+    var gridMajor:    SIMD4<Float> = SIMD4(0.82, 0.50, 0.50, 0.55)
+    /// Every 5th major — the "1 s / 2.5 mV" landmark on standard ECG paper.
+    var gridLandmark: SIMD4<Float> = SIMD4(0.65, 0.25, 0.25, 0.85)
+    var trace:        SIMD4<Float> = SIMD4(0.00, 0.00, 0.00, 1.00)
+    /// On-screen pixel width of the trace ribbon. ECG paper convention is
+    /// a thin but visible stroke; 2.5 pt reads as a confident line without
+    /// blurring beat-to-beat morphology.
+    var traceLineWidthPx: Float = 2.5
+    var envelope:     SIMD4<Float> = SIMD4(0.00, 0.00, 0.00, 0.55)
 }
 
 // MARK: - Renderer
@@ -78,6 +98,8 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     var gridMinorVertexCount: Int = 0
     var gridMajorBuffer: MTLBuffer?
     var gridMajorVertexCount: Int = 0
+    var gridLandmarkBuffer: MTLBuffer?
+    var gridLandmarkVertexCount: Int = 0
 
     /// One bucket per category, rebuilt when the visible-annotation set or its
     /// category breakdown changes. Each bucket renders with its own color.
@@ -187,10 +209,12 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         let yLo      = Double(uniforms.yMin)
         let yHi      = Double(uniforms.yMax)
 
-        let xMinor = makeGridLines(from: startSec, to: endSec, every: spec.xMinor)
-        let xMajor = makeGridLines(from: startSec, to: endSec, every: spec.xMajor)
-        let yMinor = makeGridLines(from: yLo, to: yHi, every: spec.yMinor)
-        let yMajor = makeGridLines(from: yLo, to: yHi, every: spec.yMajor)
+        let xMinor    = makeGridLines(from: startSec, to: endSec, every: spec.xMinor)
+        let xMajor    = makeGridLines(from: startSec, to: endSec, every: spec.xMajor)
+        let xLandmark = makeGridLines(from: startSec, to: endSec, every: spec.xLandmark)
+        let yMinor    = makeGridLines(from: yLo, to: yHi, every: spec.yMinor)
+        let yMajor    = makeGridLines(from: yLo, to: yHi, every: spec.yMajor)
+        let yLandmark = makeGridLines(from: yLo, to: yHi, every: spec.yLandmark)
 
         gridMinorBuffer = makeLineBuffer(
             xLines: xMinor, yLines: yMinor,
@@ -205,6 +229,13 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
             yRange: (Float(yLo), Float(yHi))
         )
         gridMajorVertexCount = (xMajor.count + yMajor.count) * 2
+
+        gridLandmarkBuffer = makeLineBuffer(
+            xLines: xLandmark, yLines: yLandmark,
+            xRange: (uniforms.startSample, uniforms.endSample),
+            yRange: (Float(yLo), Float(yHi))
+        )
+        gridLandmarkVertexCount = (xLandmark.count + yLandmark.count) * 2
     }
 
     /// Replaces the annotation buckets from a list of visible annotations.
@@ -306,7 +337,8 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
             drawRange(encoder: encoder, bucket: bucket, uniforms: &u)
         }
 
-        // 2. Grid — minor first, major over.
+        // 2. Grid — minor → major → landmark (every 5th major). Drawn in that
+        // order so heavier lines win at intersections.
         if gridMinorVertexCount > 0, let buf = gridMinorBuffer {
             drawLines(encoder: encoder, buffer: buf, vertexCount: gridMinorVertexCount,
                       color: style.gridMinor, uniforms: &u)
@@ -315,12 +347,21 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
             drawLines(encoder: encoder, buffer: buf, vertexCount: gridMajorVertexCount,
                       color: style.gridMajor, uniforms: &u)
         }
+        if gridLandmarkVertexCount > 0, let buf = gridLandmarkBuffer {
+            drawLines(encoder: encoder, buffer: buf, vertexCount: gridLandmarkVertexCount,
+                      color: style.gridLandmark, uniforms: &u)
+        }
 
         // 3. Trace OR envelope
         if useEnvelope, let pyramid = pyramidBuffer, pyramidBinCount > 0 {
             drawEnvelope(encoder: encoder, buffer: pyramid)
         } else if let samples = sampleBuffer, sampleCount > 1 {
-            drawTrace(encoder: encoder, buffer: samples, uniforms: &u)
+            drawTrace(
+                encoder: encoder,
+                buffer: samples,
+                drawableSize: view.drawableSize,
+                uniforms: &u
+            )
         }
 
         // 4. Point rules
@@ -354,19 +395,43 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     private func drawTrace(
         encoder: MTLRenderCommandEncoder,
         buffer: MTLBuffer,
+        drawableSize: CGSize,
         uniforms: inout WaveformUniforms
     ) {
-        encoder.setRenderPipelineState(tracePipeline)
-        encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-        encoder.setVertexBytes(&uniforms, length: MemoryLayout<WaveformUniforms>.size, index: 1)
-        var c = style.trace
-        encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+        // Restrict the draw to the visible range with one sample of overscan
+        // on each side so segments don't pop in/out at the chart edges.
         let lo = max(0, Int(uniforms.startSample) - 1)
         let hi = min(sampleCount, Int(uniforms.endSample.rounded(.up)) + 1)
         let count = hi - lo
-        if count > 1 {
-            encoder.drawPrimitives(type: .lineStrip, vertexStart: lo, vertexCount: count)
-        }
+        guard count > 1 else { return }
+
+        encoder.setRenderPipelineState(tracePipeline)
+        encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+
+        var traceU = TraceUniformsCPU(
+            startSample: uniforms.startSample,
+            endSample:   uniforms.endSample,
+            yMin:        uniforms.yMin,
+            yMax:        uniforms.yMax,
+            viewportSizePx: SIMD2<Float>(
+                Float(max(1, drawableSize.width)),
+                Float(max(1, drawableSize.height))
+            ),
+            lineWidthPx: style.traceLineWidthPx,
+            sampleCount: UInt32(sampleCount)
+        )
+        encoder.setVertexBytes(&traceU, length: MemoryLayout<TraceUniformsCPU>.size, index: 1)
+
+        var c = style.trace
+        encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
+
+        // Two vertices per sample → triangle strip ribbon. vertexStart × 2
+        // because the shader recovers the sample index as vid / 2.
+        encoder.drawPrimitives(
+            type: .triangleStrip,
+            vertexStart: lo * 2,
+            vertexCount: count * 2
+        )
     }
 
     private func drawEnvelope(encoder: MTLRenderCommandEncoder, buffer: MTLBuffer) {

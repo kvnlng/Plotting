@@ -53,19 +53,23 @@ final class PlottingUITests: XCTestCase {
         app.launchArguments += ["--ui-test-sample"]
         app.launch()
 
-        let bedside = app.scrollViews["bedside-view"].firstMatch
+        let bedside = app.descendants(matching: .any).matching(identifier: "bedside-view").firstMatch
         XCTAssertTrue(bedside.waitForExistence(timeout: 5),
                       "BedsideView should appear once the synthetic fixture loads")
 
-        // Summary header is visible.
-        let summary = app.staticTexts.matching(identifier: "bedside-summary").firstMatch
-        XCTAssertTrue(summary.exists, "Bedside summary header should be present")
+        // The lead chip bar should be present with chips for every synthetic
+        // lead — Focus mode default still renders the chip bar even though
+        // only one channel panel is visible at a time.
+        let chipBar = app.descendants(matching: .any).matching(identifier: "lead-chip-bar").firstMatch
+        XCTAssertTrue(chipBar.waitForExistence(timeout: 3),
+                      "Lead chip bar should be present so the user can pick a lead")
+        let chipForV1 = app.descendants(matching: .any).matching(identifier: "lead-chip-V1").firstMatch
+        XCTAssertTrue(chipForV1.exists, "Chip for V1 should be present in the lead bar")
 
-        // Two of the eight synthetic ECG lead panels should be visible.
-        let leadII = app.descendants(matching: .any).matching(identifier: "channel-panel-II").firstMatch
-        XCTAssertTrue(leadII.waitForExistence(timeout: 5), "Channel panel for II should render")
-        let leadV1 = app.descendants(matching: .any).matching(identifier: "channel-panel-V1").firstMatch
-        XCTAssertTrue(leadV1.exists, "Channel panel for V1 should render")
+        // First synthetic lead is "I" — focus mode defaults to it.
+        let focusedPanel = app.descendants(matching: .any).matching(identifier: "channel-panel-I").firstMatch
+        XCTAssertTrue(focusedPanel.waitForExistence(timeout: 5),
+                      "Channel panel for the default-focused lead (I) should render")
 
         // Empty state is gone.
         let prompt = app.staticTexts["empty-state-prompt"]

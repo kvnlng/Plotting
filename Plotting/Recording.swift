@@ -19,6 +19,13 @@ struct Recording: Codable, Equatable, Sendable {
     let sourceFileName: String
     let channels: [Channel]
     let annotations: [Annotation]
+    /// `#`-prefixed lines from the source `.hea`. Immutable — they belong to
+    /// the WFDB record, not to our analyst-editable notes.
+    let headerComments: [String]
+    /// Name of the analyst-editable Markdown file in the recording bundle.
+    /// `nil` when there are no notes (neither the source folder shipped one
+    /// nor the analyst has saved anything yet).
+    let notesFileName: String?
 
     static let currentVersion = 1
 
@@ -29,7 +36,9 @@ struct Recording: Codable, Equatable, Sendable {
         createdAt: Date,
         sourceFileName: String,
         channels: [Channel],
-        annotations: [Annotation] = []
+        annotations: [Annotation] = [],
+        headerComments: [String] = [],
+        notesFileName: String? = nil
     ) {
         self.version = version
         self.id = id
@@ -38,12 +47,16 @@ struct Recording: Codable, Equatable, Sendable {
         self.sourceFileName = sourceFileName
         self.channels = channels
         self.annotations = annotations
+        self.headerComments = headerComments
+        self.notesFileName = notesFileName
     }
 
     /// Custom decoder so older manifests still load:
     ///   • Manifest without `annotations` key   → empty array
     ///   • Manifest with `[Annotation]` shape    → decoded as-is (new format)
     ///   • Manifest with `[WFDBAnnotation]` shape → adapted to point-Annotations
+    ///   • `headerComments` / `notesFileName` default when absent so pre-context
+    ///     manifests keep loading.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try c.decode(Int.self, forKey: .version)
@@ -60,6 +73,9 @@ struct Recording: Codable, Equatable, Sendable {
         } else {
             self.annotations = []
         }
+
+        self.headerComments = (try? c.decodeIfPresent([String].self, forKey: .headerComments)) ?? []
+        self.notesFileName  = try? c.decodeIfPresent(String.self,    forKey: .notesFileName)
     }
 }
 

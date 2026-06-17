@@ -117,6 +117,12 @@ enum WFDBImporter {
             sampleRate: header.samplingFrequency
         )
 
+        let notesFileName = copyNotesIntoBundle(
+            recordName: header.recordName,
+            sourceFolder: heaDir,
+            bundleDirectory: directory
+        )
+
         let recording = Recording(
             version: Recording.currentVersion,
             id: recordingID,
@@ -124,7 +130,9 @@ enum WFDBImporter {
             createdAt: Date(),
             sourceFileName: heaURL.lastPathComponent,
             channels: channels,
-            annotations: annotations
+            annotations: annotations,
+            headerComments: header.comments,
+            notesFileName: notesFileName
         )
         try writeManifest(recording, into: directory)
 
@@ -194,5 +202,29 @@ enum WFDBImporter {
         }
 
         return collected
+    }
+
+    /// If `<recordName>.notes.md` exists in the source folder, copy it into the
+    /// recording bundle as `notes.md`. Returns the bundle-relative filename
+    /// (or nil when no notes file exists). The analyst-editable copy then
+    /// lives entirely inside the bundle — edits never touch the source folder.
+    private static func copyNotesIntoBundle(
+        recordName: String,
+        sourceFolder: URL,
+        bundleDirectory: URL
+    ) -> String? {
+        let sourceURL = sourceFolder.appendingPathComponent("\(recordName).notes.md")
+        let bundleNotesName = "notes.md"
+        let destURL = bundleDirectory.appendingPathComponent(bundleNotesName)
+
+        if FileManager.default.fileExists(atPath: sourceURL.path) {
+            if let data = try? Data(contentsOf: sourceURL) {
+                try? data.write(to: destURL, options: .atomic)
+                return bundleNotesName
+            }
+        }
+        // No source-folder notes; reserve the filename anyway so the editor has
+        // a stable place to write to when the analyst starts taking notes.
+        return bundleNotesName
     }
 }

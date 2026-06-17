@@ -183,7 +183,9 @@ struct WaveformVoltageAxis: View {
             let majors = makeGridLines(from: yMin, to: yMax, every: spec.yMajor)
             ForEach(majors, id: \.self) { v in
                 let yFrac = (yMax - v) / max(0.0001, yMax - yMin)
-                Text(String(format: "%.1f mV", v))
+                // Unit shown once in the panel header ("II (mV)") instead of
+                // on every tick — keeps the axis from feeling cluttered.
+                Text(String(format: "%.1f", v))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
                     .position(x: 28, y: CGFloat(yFrac) * geo.size.height)

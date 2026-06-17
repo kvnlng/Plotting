@@ -6,7 +6,20 @@ The PhysioNet WFDB record (`.hea` + `.dat`) is the *context* the analyst
 needs to interpret each finding; the findings themselves are the primary
 data surface.
 
-## Current state (updated 2026-06-16)
+## Current state (updated 2026-06-17)
+
+**Bedside layout**
+- `LeadChipBar` across the top of `BedsideView` with a per-lead color chip
+  and a Focus / Strips segmented control. Focus mode shows a single tall
+  panel for the selected lead; Strips mode stacks every lead vertically.
+- `RecordContextPanel` — top-of-view summary block that surfaces `.hea`
+  header comments (recovered from the original WFDB file) and a Markdown
+  `notes.md` editor that lives next to the recording bundle.
+- Read/write latch toolbar toggle (lock / lock.open) gates notes editing
+  and is wired to gate future annotation create/edit/delete affordances.
+- Window adaptability: narrower sidebar (160 pt min), narrower inspector
+  (220 pt min), wrapped summary text, and a reduced canvas minimum so the
+  app collapses cleanly to a small window.
 
 **Annotation model (the wow factor)**
 - `Annotation` — `kind` (point/range), `category`, optional `label`,
@@ -37,15 +50,18 @@ data surface.
 
 **Waveform Canvas — Metal**
 - `MTKView` via `NSViewRepresentable`. Per-frame: clear paper → range fills
-  (one bucket per category) → grid minor → grid major → trace OR pyramid
-  envelope → point rules (one bucket per category).
+  (one bucket per category) → grid minor → grid major → grid landmark →
+  trace OR pyramid envelope → point rules (one bucket per category).
 - Shaders: `traceVertex`, `lineVertex`, `envelopeVertex`, `rangeVertex`,
-  `colorFragment`. Trace uses `vertex_id` as the sample index for zero-copy
-  vertex addressing.
+  `colorFragment`. Trace is now a triangle-strip polyline — each sample
+  extrudes to a 2-vertex ribbon and the vertex shader computes the
+  perpendicular in screen-pixel space, so line width stays constant in
+  points regardless of zoom (Metal has no `glLineWidth` equivalent).
 - Annotation buckets group by `(category, kind)` so each category gets its
   own color in a single instanced draw call. Severity modulates alpha.
-- SwiftUI overlays for axis tick labels (time + mV) and annotation symbol
-  text positioned by viewport math.
+- SwiftUI overlays for axis tick labels (time + mV), annotation symbol
+  text, and an off-scale chevron overlay driven by `ClippedRangeScanner`
+  (▲/▼ markers at the canvas edge where the signal clipped above/below).
 - Overview ribbon stays Swift Charts — tiny widget, click/drag scrub.
 
 **Data engine**
@@ -67,10 +83,19 @@ data surface.
   in `ContentView` so switching records is instant after first import.
 
 **ECG paper grid**
-- `ECGGridSpec.forDuration(seconds:)` picks adaptive major/minor spacings
-  per zoom level so the grid stays readable from 1 s to multi-hour windows.
+- `ECGGridSpec.forDuration(seconds:)` picks adaptive minor / major /
+  landmark spacings per zoom level so the grid stays readable from 1 s to
+  multi-hour windows. Landmark is always 5× the major — the "1 s / 2.5 mV"
+  reference line on standard ECG paper.
 
-**Tests** — 72 total (67 unit + 5 UI).
+**Ingest extras**
+- `WFDBHeaderParser` preserves `#`-prefixed comment lines verbatim and
+  threads them through the importer onto `Recording.headerComments`.
+- `WFDBImporter` copies any sibling `notes.md` from the source folder into
+  the imported bundle and records its filename on the manifest so the
+  context panel can read/write it.
+
+**Tests** — 83 total (79 unit + 4 UI).
 
 ## Architecture
 
