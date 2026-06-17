@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		0ABC7EAA2FDF1FC80037314C /* swiftlint in Frameworks */ = {isa = PBXBuildFile; productRef = 0ABC7EA92FDF1FC80037314C /* swiftlint */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		0A9B42E22FDF06BB0059C903 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0ABC7EAA2FDF1FC80037314C /* swiftlint in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -106,12 +111,14 @@
 			buildRules = (
 			);
 			dependencies = (
+				0ABC7EAC2FDF1FDE0037314C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0A9B42D12FDF06BA0059C903 /* Plotting */,
 			);
 			name = Plotting;
 			packageProductDependencies = (
+				0ABC7EA92FDF1FC80037314C /* swiftlint */,
 			);
 			productName = Plotting;
 			productReference = 0A9B42CF2FDF06BA0059C903 /* Plotting.app */;
@@ -195,6 +202,9 @@
 			);
 			mainGroup = 0A9B42C62FDF06BA0059C903;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0A9B42D02FDF06BA0059C903 /* Products */;
 			projectDirPath = "";
@@ -265,6 +275,10 @@
 			isa = PBXTargetDependency;
 			target = 0A9B42CE2FDF06BA0059C903 /* Plotting */;
 			targetProxy = 0A9B42EC2FDF06BB0059C903 /* PBXContainerItemProxy */;
+		};
+		0ABC7EAC2FDF1FDE0037314C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			productRef = 0ABC7EAB2FDF1FDE0037314C /* SwiftLintBuildToolPlugin */;
 		};
 /* End PBXTargetDependency section */
 
@@ -403,6 +417,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -435,6 +450,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.medical";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -573,6 +589,30 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/realm/SwiftLint";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.63.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		0ABC7EA92FDF1FC80037314C /* swiftlint */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */;
+			productName = swiftlint;
+		};
+		0ABC7EAB2FDF1FDE0037314C /* SwiftLintBuildToolPlugin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */;
+			productName = "plugin:SwiftLintBuildToolPlugin";
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 0A9B42C72FDF06BA0059C903 /* Project object */;
 }

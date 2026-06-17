@@ -1,0 +1,87 @@
+# SwiftLint configuration for the Plotting app.
+# Docs: https://github.com/realm/SwiftLint
+#
+# Run from the project root:    swiftlint
+# Auto-fix what can be fixed:   swiftlint --fix
+
+# Paths SwiftLint should scan.
+included:
+  - Plotting
+  - PlottingTests
+  - PlottingUITests
+
+# Paths SwiftLint should ignore.
+excluded:
+  - Plotting/Assets.xcassets
+  - Plotting/Plotting.xcdatamodeld
+  - Products
+  - .build
+  - DerivedData
+
+# Rules disabled because they fight idiomatic SwiftUI / are noisy in small apps.
+disabled_rules:
+  - todo                       # We allow TODO/FIXME during development.
+  - trailing_comma             # SwiftUI view builders read better with trailing commas.
+  - multiple_closures_with_trailing_closure  # Common & readable in SwiftUI.
+
+# Opt-in rules that catch real bugs or improve readability.
+opt_in_rules:
+  - empty_count
+  - empty_string
+  - explicit_init
+  - first_where
+  - last_where
+  - force_unwrapping           # Warn on `!` — usually a code smell outside tests.
+  - implicit_return
+  - redundant_nil_coalescing
+  - sorted_imports
+  - toggle_bool
+  - vertical_whitespace_closing_braces
+  - vertical_whitespace_opening_braces
+
+# Per-rule tuning.
+line_length:
+  warning: 140
+  error: 200
+  ignores_comments: true
+  ignores_urls: true
+
+identifier_name:
+  min_length: 1                # Allow `x`, `y`, `id`, loop vars — too strict otherwise.
+  max_length:
+    warning: 50
+    error: 60
+  excluded:                    # Names we never want flagged regardless.
+    - id
+
+type_name:
+  min_length: 3
+  max_length:
+    warning: 50
+    error: 60
+
+function_body_length:
+  warning: 60
+  error: 120
+
+type_body_length:
+  warning: 300                 # SwiftUI views can get tall.
+  error: 500
+
+file_length:
+  warning: 500
+  error: 1000
+
+cyclomatic_complexity:
+  warning: 12
+  error: 20
+
+nesting:
+  type_level: 3                # SwiftUI nests views fairly deep.
+
+# Don't lint generated files or third-party code if any get added later.
+analyzer_rules:
+  - unused_declaration
+  - unused_import
+
+reporter: "xcode"              # Format compatible with Xcode's issue navigator.

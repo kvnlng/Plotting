@@ -1,0 +1,122 @@
+# Plotting — Roadmap
+
+A macOS SwiftUI app for analyst review of clinical findings produced upstream
+by a cluster of analysis machines (VF/VT onset, AFib, PVCs, disease vectors).
+The PhysioNet WFDB record (`.hea` + `.dat`) is the *context* the analyst
+needs to interpret each finding; the findings themselves are the primary
+data surface.
+
+## Current state (updated 2026-06-16)
+
+**Annotation model (the wow factor)**
+- `Annotation` — `kind` (point/range), `category`, optional `label`,
+  `confidence`, `severity` (info/notice/warning/critical, Comparable),
+  `source`, optional `note`, `lead`, `evidenceContextSeconds`.
+- `AnnotationFile` JSON wire format (`schemaVersion: 1`) is the canonical
+  ingest path. Timestamps accept either `startSample`/`endSample` (already
+  aligned) or `startUnixMS`/`endUnixMS` (viewer resolves at import).
+- WFDB `.atr` is a legacy adapter — beat letters become point annotations
+  tagged `source = "wfdb.atr"`.
+- Importer scans `<recordName>.annotations.json` first, then `.atr`/`.qrs`,
+  concatenating both.
+- `Recording` decode is back-compat: legacy manifests with
+  `[WFDBAnnotation]` arrays still load and get adapted on the fly.
+
+**Findings UI**
+- Right-side `inspector` drawer (`FindingsPanel`) with filter chip bar:
+  categories (each with its palette color dot), severities, sources, and
+  a confidence-threshold slider.
+- Findings list — color-grouped rows with time, severity badge, confidence,
+  source, and note preview. Click to jump the viewport; range findings
+  widen the viewport to show context around them.
+- The filter is shared with the canvas — filtered-out findings stop
+  rendering everywhere.
+- `CategoryPalette` — hand-tuned colors for common clinical categories
+  (reds = ventricular, purples = atrial, blues = conduction, slate =
+  noise), with deterministic FNV-1a → HSV fallback for unknown categories.
+
+**Waveform Canvas — Metal**
+- `MTKView` via `NSViewRepresentable`. Per-frame: clear paper → range fills
+  (one bucket per category) → grid minor → grid major → trace OR pyramid
+  envelope → point rules (one bucket per category).
+- Shaders: `traceVertex`, `lineVertex`, `envelopeVertex`, `rangeVertex`,
+  `colorFragment`. Trace uses `vertex_id` as the sample index for zero-copy
+  vertex addressing.
+- Annotation buckets group by `(category, kind)` so each category gets its
+  own color in a single instanced draw call. Severity modulates alpha.
+- SwiftUI overlays for axis tick labels (time + mV) and annotation symbol
+  text positioned by viewport math.
+- Overview ribbon stays Swift Charts — tiny widget, click/drag scrub.
+
+**Data engine**
+- `BinaryRecordingFile` v2 — 64-byte header + packed Float32 body.
+- `MappedSampleAccess` + `PyramidLevelFile` — mmap-backed reads.
+- `PyramidBuilder` — single-pass cascading min/max bins (stride 10, up to
+  6 levels).
+- `ChannelView` — LOD-aware reader; `selectLevel(samplesPerPixel:)` returns
+  raw or the deepest fitting pyramid level.
+- `RecordingViewport` (`@Observable @MainActor`) — shared time window for
+  every lead, with `pan` / `setStart` / `setWidth` / `jump` clamped to
+  bounds and a 100 ms minimum window.
+
+**Ingest + sandbox**
+- File picker selects a *folder*; security scope covers all files inside.
+- `WFDBHeaderParser` supports format 16 and 212 (MIT-BIH style); baseline
+  defaults to `adcZero` per WFDB spec.
+- `RecordingStore` async import on background task; per-record import cache
+  in `ContentView` so switching records is instant after first import.
+
+**ECG paper grid**
+- `ECGGridSpec.forDuration(seconds:)` picks adaptive major/minor spacings
+  per zoom level so the grid stays readable from 1 s to multi-hour windows.
+
+**Tests** — 72 total (67 unit + 5 UI).
+
+## Architecture
+
+Three layers as agreed; all three now built:
+
+1. **Data Engine** — mmap + pyramid + LOD selector + viewport.
+2. **Waveform Canvas** — Metal (MTKView) rendering paper, grid, trace,
+   envelope, point + range annotations.
+3. **Control Overlay** — SwiftUI for axes, annotation symbols, gestures,
+   findings panel, filter chips, toolbar.
+
+## Next goals
+
+### Near-term (next session)
+- [ ] "Attach findings…" toolbar action — pick a JSON from anywhere and
+      merge into the current recording's annotations (currently ingest is
+      folder-scan only)
+- [ ] Persist annotations separately from `recording.json` as
+      `annotations.json` so re-running the analysis cluster doesn't require
+      re-importing the .dat samples
+- [ ] Schema versioning — write a deliverable `schema.md` in the repo so
+      cluster producers have a stable contract
+- [ ] Mini-timeline ticks under each channel overview ribbon — colored
+      dots at every annotation's fractional position so beat density and
+      finding clusters are visible at full-recording scale
+- [ ] Hover tooltips on the canvas — hit-test for the nearest finding and
+      show its full note + confidence + source
+
+### Medium-term
+- [ ] Lead-specific findings — render annotations only on the channels
+      that match their `lead` field
+- [ ] Finding sorting modes (by time, by category, by confidence, by
+      severity) in the findings panel
+- [ ] Keyboard navigation: J/K through findings, →/← pan one window,
+      +/− zoom
+- [ ] Per-channel y-axis autoscale (instead of fixed ±5 mV) when the
+      signal sits in a narrower band
+- [ ] Beat clustering at low zoom — collapse adjacent points of the same
+      category into a single hit-counter mark when they overlap
+- [ ] Snapshot export — current viewport as PNG with grid + findings, for
+      sharing with clinicians
+
+### Deferred
+- [ ] Multi-file WFDB records (per-signal `.dat`)
+- [ ] Additional WFDB sample formats (8, 16+, 24, 32, 310, 311, 80)
+- [ ] Annotation authoring inside the app (manual marker placement)
+- [ ] Export imported recordings to a portable bundle
+- [ ] HDR/wide-color-gamut Metal canvas
+- [ ] Two-finger trackpad swipe → pan via an NSScrollView bridge

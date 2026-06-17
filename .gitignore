@@ -1,0 +1,39 @@
+# macOS
+.DS_Store
+
+# Xcode — user-specific state (per-developer, never share)
+xcuserdata/
+*.xcuserstate
+*.xcuserdatad/
+
+# Xcode — build products / derived data
+build/
+DerivedData/
+Products/
+*.xcarchive
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Package.resolved
+.swiftpm/
+*.swiftpm/
+
+# Pods / Carthage / other dep managers
+Pods/
+Carthage/Build/
+
+# Logs / temp
+*.log
+*.tmp
+*.swp
+*.bak
+
+# Test results / playgrounds
+*.xctestrun
+*.xcresult
+*.playground/timeline.xctimeline
+
+# Memory / agent artifacts (not part of the project)
+memory/
