@@ -166,6 +166,12 @@ struct BedsideView: View {
                         annotations: filteredAnnotations,
                         sizing: .focus
                     )
+                    // Tear down + rebuild when the focused lead changes —
+                    // WaveformCanvas's MTKView caches the previous channel's
+                    // sample buffer and the off-scale scanner is per-channel,
+                    // so reusing the same SwiftUI identity would leave the
+                    // viewer showing stale data after the chip-bar tap.
+                    .id(channel.id)
                     .frame(maxHeight: .infinity)
                     trendStrip
                     alarmStrip
