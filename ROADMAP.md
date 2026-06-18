@@ -8,6 +8,18 @@ data surface.
 
 ## Current state (updated 2026-06-18)
 
+**Triage surfaces**
+- `AnnotationSummary` — pure aggregation over `[Annotation]` that rolls
+  each category up into counts, severity breakdowns, and total range
+  extent. Sorted critical-first, then by count.
+- `FindingsSummaryHeader` — compact horizontal chip row above the
+  canvas: `PVC 47 (12 critical) · AFib 38s · VT 3`. Click a chip to
+  toggle the shared `FindingFilter` for that category.
+- `FindingDensityTimeline` — one thin lane per surviving category
+  spanning the full recording. Points render as ticks, ranges as bars.
+  Tap anywhere on a lane to jump the viewport. Lets the analyst see
+  finding clusters across a multi-hour record at a glance.
+
 **Welcome screen**
 - `WelcomeView` is the first-launch experience: a centered card on a
   faint ECG-paper backdrop with the app name, a one-line tagline, three
@@ -110,7 +122,7 @@ data surface.
   the imported bundle and records its filename on the manifest so the
   context panel can read/write it.
 
-**Tests** — 91 total (87 unit + 4 UI).
+**Tests** — 105 total (101 unit + 4 UI).
 
 ## Architecture
 

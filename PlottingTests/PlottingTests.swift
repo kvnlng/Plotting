@@ -1456,3 +1456,206 @@ struct RecentFoldersStoreTests {
         #expect(resolved.path == folder.path)
     }
 }
+
+// MARK: - Annotation summary aggregation
+
+@Suite("Annotation summary")
+struct AnnotationSummaryTests {
+
+    private func point(_ category: String, at sample: Int64, severity: Annotation.Severity = .info) -> Annotation {
+        Annotation(kind: .point, sampleIndex: sample, category: category, severity: severity, source: "test")
+    }
+
+    private func range(_ category: String, from start: Int64, to end: Int64, severity: Annotation.Severity = .info) -> Annotation {
+        Annotation(kind: .range, sampleIndex: start, endSampleIndex: end, category: category, severity: severity, source: "test")
+    }
+
+    @Test("Empty input produces an empty summary")
+    func emptyInput() {
+        let summary = AnnotationSummary.build(from: [], recordingDurationSamples: 10_000, sampleRate: 250)
+        #expect(summary.rollups.isEmpty)
+        #expect(summary.totalCount == 0)
+    }
+
+    @Test("Point-only category rolls up as count, not range-dominant")
+    func pointOnlyCategory() {
+        let summary = AnnotationSummary.build(
+            from: [point("PVC", at: 10), point("PVC", at: 200), point("PVC", at: 500)],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let pvc = try? #require(summary.rollups.first { $0.category == "PVC" })
+        #expect(pvc?.totalCount == 3)
+        #expect(pvc?.pointCount == 3)
+        #expect(pvc?.rangeCount == 0)
+        #expect(pvc?.totalRangeSamples == 0)
+        #expect(pvc?.isRangeDominant == false)
+    }
+
+    @Test("Range-only category accumulates total span and is range-dominant")
+    func rangeOnlyCategory() {
+        let summary = AnnotationSummary.build(
+            from: [
+                range("AFib", from: 0, to: 500),
+                range("AFib", from: 1_000, to: 1_750)
+            ],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let afib = try? #require(summary.rollups.first { $0.category == "AFib" })
+        #expect(afib?.rangeCount == 2)
+        #expect(afib?.totalRangeSamples == 1_250)
+        #expect(afib?.isRangeDominant == true)
+    }
+
+    @Test("Ranges with missing end samples contribute count but not duration")
+    func rangeWithoutEndSampleSkipsDuration() {
+        let openRange = Annotation(
+            kind: .range,
+            sampleIndex: 100,
+            endSampleIndex: nil,                  // producer forgot to set it
+            category: "noise",
+            source: "test"
+        )
+        let summary = AnnotationSummary.build(
+            from: [openRange],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let noise = try? #require(summary.rollups.first { $0.category == "noise" })
+        #expect(noise?.rangeCount == 1)
+        #expect(noise?.totalRangeSamples == 0)
+        #expect(noise?.isRangeDominant == false)
+    }
+
+    @Test("Per-severity counts and maxSeverity are reported correctly")
+    func severityBreakdown() {
+        let summary = AnnotationSummary.build(
+            from: [
+                point("VT", at: 10,  severity: .critical),
+                point("VT", at: 30,  severity: .warning),
+                point("VT", at: 50,  severity: .info),
+                point("VT", at: 70,  severity: .warning)
+            ],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let vt = try? #require(summary.rollups.first { $0.category == "VT" })
+        #expect(vt?.criticalCount == 1)
+        #expect(vt?.warningCount  == 2)
+        #expect(vt?.severityCounts[.info] == 1)
+        #expect(vt?.maxSeverity == .critical)
+    }
+
+    @Test("Rollups sort by max severity descending, then count descending")
+    func sortOrder() {
+        // Categories: noise (3 info), PVC (1 critical + 2 info), AFib (2 warning),
+        // Order should be: PVC (critical), AFib (warning), noise (info, larger count)
+        let summary = AnnotationSummary.build(
+            from: [
+                point("noise", at: 1, severity: .info),
+                point("noise", at: 2, severity: .info),
+                point("noise", at: 3, severity: .info),
+                point("PVC", at: 10, severity: .critical),
+                point("PVC", at: 20, severity: .info),
+                point("PVC", at: 30, severity: .info),
+                point("AFib", at: 100, severity: .warning),
+                point("AFib", at: 200, severity: .warning)
+            ],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let categories = summary.rollups.map(\.category)
+        #expect(categories == ["PVC", "AFib", "noise"])
+    }
+
+    @Test("Tied severity + count breaks by category name ascending")
+    func tieBreakByName() {
+        let summary = AnnotationSummary.build(
+            from: [
+                point("zeta",  at: 1, severity: .info),
+                point("alpha", at: 2, severity: .info)
+            ],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        #expect(summary.rollups.map(\.category) == ["alpha", "zeta"])
+    }
+
+    @Test("fractionOfRecording handles unknown duration, zero range, and normal case")
+    func fractionOfRecording() {
+        let pointRollup = AnnotationSummary.build(
+            from: [point("PVC", at: 10)],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        #expect(pointRollup.fractionOfRecording(pointRollup.rollups[0]) == nil)
+
+        let rangeSummary = AnnotationSummary.build(
+            from: [range("AFib", from: 0, to: 4_000)],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        let fraction = rangeSummary.fractionOfRecording(rangeSummary.rollups[0])
+        #expect(fraction == 0.4)
+
+        let unknown = AnnotationSummary.build(
+            from: [range("AFib", from: 0, to: 4_000)],
+            recordingDurationSamples: nil,
+            sampleRate: 250
+        )
+        #expect(unknown.fractionOfRecording(unknown.rollups[0]) == nil)
+    }
+
+    @Test("totalCount equals the input length even across categories")
+    func totalCountAcrossCategories() {
+        let summary = AnnotationSummary.build(
+            from: [
+                point("PVC", at: 1),
+                point("PVC", at: 2),
+                range("AFib", from: 100, to: 200),
+                point("noise", at: 300)
+            ],
+            recordingDurationSamples: 10_000,
+            sampleRate: 250
+        )
+        #expect(summary.totalCount == 4)
+    }
+}
+
+// MARK: - Chip duration formatting
+
+@Suite("Chip duration formatting")
+struct ChipDurationTests {
+    @Test("Sub-second durations show one decimal")
+    func subSecond() {
+        #expect(ChipDuration.format(seconds: 0.7) == "0.7s")
+    }
+
+    @Test("Seconds round to whole numbers")
+    func wholeSeconds() {
+        #expect(ChipDuration.format(seconds: 1) == "1s")
+        #expect(ChipDuration.format(seconds: 30) == "30s")
+        #expect(ChipDuration.format(seconds: 59.6) == "60s")
+    }
+
+    @Test("Minutes-and-seconds combines with `m` and `s`")
+    func minutesAndSeconds() {
+        #expect(ChipDuration.format(seconds: 60) == "1m")
+        #expect(ChipDuration.format(seconds: 90) == "1m30s")
+        #expect(ChipDuration.format(seconds: 125) == "2m5s")
+    }
+
+    @Test("Hours-and-minutes combines with `h` and `m`")
+    func hoursAndMinutes() {
+        #expect(ChipDuration.format(seconds: 3_600) == "1h")
+        #expect(ChipDuration.format(seconds: 3_720) == "1h2m")
+        #expect(ChipDuration.format(seconds: 7_200) == "2h")
+    }
+
+    @Test("Negative or non-finite values fall back safely")
+    func nonFiniteValues() {
+        #expect(ChipDuration.format(seconds: -5) == "0s")
+        #expect(ChipDuration.format(seconds: .nan) == "0s")
+    }
+}

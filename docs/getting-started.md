@@ -51,6 +51,18 @@ security scope covers both the `.hea` and its sibling `.dat`.
 
 ## Reading the bedside view
 
+Above the canvas, two recording-level surfaces answer "what's in here?"
+before you ever scrub:
+
+- **Summary chip row** — one chip per category in the recording (e.g.
+  `PVC 47 (12 critical)`, `AFib 38s`). Click a chip to toggle the filter
+  for that category — same effect as clicking the chip in the findings
+  panel.
+- **Finding density timeline** — one thin lane per surviving category
+  spanning the full recording. Points show as ticks, ranges as bars
+  proportional to their duration. Click anywhere on a lane to jump the
+  viewport to that fraction of the recording.
+
 Each channel renders as a stacked panel:
 
 | Element | Purpose |

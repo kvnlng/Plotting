@@ -41,10 +41,21 @@ struct BedsideView: View {
         _layoutMode = State(initialValue: first.map { .focus($0.id) } ?? .strips)
     }
 
-    /// Annotations that survive the current filter. Drives both the canvas and
-    /// the findings panel so they stay in sync.
+    /// Annotations that survive the current filter. Drives the canvas, the
+    /// findings panel, and the density timeline so all three stay in sync.
     private var filteredAnnotations: [Annotation] {
         recording.annotations.filter(filter.matches)
+    }
+
+    /// Unfiltered rollup for the summary chip row — chips show total counts
+    /// across the recording regardless of the active filter, so the user
+    /// always sees "47 PVCs" instead of "8 of 47 shown."
+    private var unfilteredSummary: AnnotationSummary {
+        AnnotationSummary.build(
+            from: recording.annotations,
+            recordingDurationSamples: recording.channels.first?.sampleCount,
+            sampleRate: recording.channels.first?.sampleRate ?? 250
+        )
     }
 
     private var focusedChannel: Channel? {
@@ -107,6 +118,7 @@ struct BedsideView: View {
             if let channel = focusedChannel {
                 VStack(alignment: .leading, spacing: 12) {
                     summaryHeader
+                    findingsOverview
                     ChannelPanel(
                         channel: channel,
                         directory: recordingDirectory,
@@ -128,6 +140,7 @@ struct BedsideView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     summaryHeader
+                    findingsOverview
                     ForEach(recording.channels) { channel in
                         ChannelPanel(
                             channel: channel,
@@ -140,6 +153,34 @@ struct BedsideView: View {
                 }
                 .padding(16)
             }
+        }
+    }
+
+    /// Summary chip row + recording-level finding-density timeline. Both
+    /// reuse `recording.annotations` so there's no new derived state to
+    /// keep in sync beyond `filter` — toggling a chip narrows the timeline
+    /// and the canvas in lockstep.
+    @ViewBuilder
+    private var findingsOverview: some View {
+        if !recording.annotations.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                FindingsSummaryHeader(
+                    summary: unfilteredSummary,
+                    filter: $filter
+                )
+                if let firstChannel = recording.channels.first {
+                    FindingDensityTimeline(
+                        annotations: filteredAnnotations,
+                        totalSamples: firstChannel.sampleCount,
+                        sampleRate: firstChannel.sampleRate,
+                        viewport: viewport
+                    )
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(.thinMaterial)
+            )
         }
     }
 
