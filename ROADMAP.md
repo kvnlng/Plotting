@@ -8,6 +8,24 @@ data surface.
 
 ## Current state (updated 2026-06-18)
 
+**Multi-frequency WFDB + low-rate trends**
+- `WFDBHeaderParser` honors the per-signal `format[xspf]` suffix, so a
+  record can mix 250 Hz ECG signals (`16x250`) with 1 Hz feature signals
+  (`16x1`) at one base frame rate. `WFDBHeader.sampleRate(for:)` /
+  `sampleCount(for:)` expose per-signal values.
+- `WFDBSampleDecoder` groups signals by `.dat` filename and opens each
+  file exactly once. Each file may hold one signal (per-signal files —
+  the path the Medallion feature store will use) or several at the same
+  rate (legacy single-file records).
+- `Channel.isTrendChannel` (`sampleRate < 5 Hz`) lets `BedsideView`
+  partition channels: ECG goes on the Metal canvas, low-rate trends go
+  to `ChannelTrendStrip` — stacked Swift Charts sparklines below the
+  canvas, time-locked to the shared `RecordingViewport`. The strip is
+  hidden entirely when the recording has no trend channels.
+- `SyntheticRecording.makeMultiFrequencyRecord(into:)` builds a per-
+  signal-file fixture (8 ECG + fake HR + fake SpO₂) so the welcome
+  screen demo exercises the new path.
+
 **Triage surfaces**
 - `AnnotationSummary` — pure aggregation over `[Annotation]` that rolls
   each category up into counts, severity breakdowns, and total range
@@ -122,7 +140,7 @@ data surface.
   the imported bundle and records its filename on the manifest so the
   context panel can read/write it.
 
-**Tests** — 105 total (101 unit + 4 UI).
+**Tests** — 113 total (109 unit + 4 UI).
 
 ## Architecture
 

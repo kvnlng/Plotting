@@ -1659,3 +1659,150 @@ struct ChipDurationTests {
         #expect(ChipDuration.format(seconds: .nan) == "0s")
     }
 }
+
+// MARK: - WFDB multi-frequency / multi-file support
+
+@Suite("WFDB multi-frequency parsing")
+struct WFDBMultiFrequencyTests {
+
+    @Test("Signal lines without an spf suffix default to 1")
+    func defaultsToSpfOne() throws {
+        let hea = """
+        rec 1 250 100
+        rec.dat 16 200(mV)/0 16 0 0 0 0 II
+        """
+        let header = try WFDBHeaderParser.parse(text: hea)
+        #expect(header.signals[0].samplesPerFrame == 1)
+        #expect(header.sampleRate(for: header.signals[0]) == 250.0)
+        #expect(header.sampleCount(for: header.signals[0]) == 100)
+    }
+
+    @Test("Format field `16x250` parses samples-per-frame correctly")
+    func capturesSpfFromFormatField() throws {
+        let hea = """
+        multi 2 1 60
+        ecg.dat 16x250 200(mV)/0 16 0 0 0 0 II
+        hr.dat 16x1 1(bpm)/0 16 0 0 0 0 HR_bpm
+        """
+        let header = try WFDBHeaderParser.parse(text: hea)
+        #expect(header.signals[0].samplesPerFrame == 250)
+        #expect(header.signals[1].samplesPerFrame == 1)
+        #expect(header.sampleRate(for: header.signals[0]) == 250.0)
+        #expect(header.sampleRate(for: header.signals[1]) == 1.0)
+        // Frame count × spf = per-signal sample count
+        #expect(header.sampleCount(for: header.signals[0]) == 15_000)
+        #expect(header.sampleCount(for: header.signals[1]) == 60)
+    }
+
+    @Test("Skew suffix (e.g. `16x4:10`) is ignored and spf still captured")
+    func ignoresSkewSuffix() throws {
+        let hea = """
+        skew 1 1 10
+        s.dat 16x4:10 1(unit)/0 16 0 0 0 0 X
+        """
+        let header = try WFDBHeaderParser.parse(text: hea)
+        #expect(header.signals[0].samplesPerFrame == 4)
+    }
+}
+
+@Suite("WFDB multi-file importer")
+struct WFDBMultiFileImporterTests {
+
+    @Test("Imports a multi-frequency record with per-signal .dat files")
+    func importsMultiFrequencyRecord() throws {
+        let srcDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WFDBMulti-\(UUID().uuidString)", isDirectory: true)
+        let outDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WFDBMulti-out-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeMultiFrequencyRecord(into: srcDir)
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+
+        // 8 ECG signals + 2 trend signals.
+        #expect(summary.recording.channels.count == 10)
+
+        let ecg = summary.recording.channels.first { $0.name == "II" }
+        let hr  = summary.recording.channels.first { $0.name == "HR_bpm" }
+        let spo2 = summary.recording.channels.first { $0.name == "SpO2_pct" }
+        try #require(ecg != nil)
+        try #require(hr != nil)
+        try #require(spo2 != nil)
+
+        #expect(ecg!.sampleRate == 250.0)
+        #expect(ecg!.sampleCount == 2_500)
+        #expect(!ecg!.isTrendChannel)
+
+        #expect(hr!.sampleRate == 1.0)
+        #expect(hr!.sampleCount == 10)
+        #expect(hr!.isTrendChannel)
+        #expect(spo2!.isTrendChannel)
+    }
+
+    @Test("Trend channel samples round-trip through the importer with the right values")
+    func trendChannelValuesRoundTrip() throws {
+        let srcDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WFDBTrend-\(UUID().uuidString)", isDirectory: true)
+        let outDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WFDBTrend-out-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: srcDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeMultiFrequencyRecord(into: srcDir)
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        let hr = try #require(summary.recording.channels.first { $0.name == "HR_bpm" })
+
+        let binURL = summary.directory.appendingPathComponent(hr.storageFileName)
+        let samples = try BinaryRecordingFile.readSamples(url: binURL, range: 0..<hr.sampleCount)
+        // Synth HR is `72 + 8·sin(t·π/5)` rounded to int, so values stay
+        // comfortably within human-physiological range.
+        for value in samples {
+            #expect(value >= 60 && value <= 90)
+        }
+    }
+}
+
+@Suite("Channel discriminators")
+struct ChannelDiscriminatorTests {
+
+    private func channel(rate: Double) -> Channel {
+        Channel(
+            id: UUID(),
+            name: "x",
+            unit: "",
+            sampleRate: rate,
+            startTimeUnixMS: 0,
+            sampleCount: 100,
+            storageFileName: "x.bin",
+            pyramid: []
+        )
+    }
+
+    @Test("ECG-rate channels are not trend channels")
+    func ecgRateIsNotTrend() {
+        #expect(!channel(rate: 250).isTrendChannel)
+        #expect(!channel(rate: 360).isTrendChannel)
+        #expect(!channel(rate: 251.5).isTrendChannel)
+    }
+
+    @Test("Sub-5-Hz channels are trend channels")
+    func lowRateIsTrend() {
+        #expect(channel(rate: 1).isTrendChannel)
+        #expect(channel(rate: 1.0 / 60).isTrendChannel)
+        #expect(channel(rate: 0.5).isTrendChannel)
+    }
+
+    @Test("5 Hz boundary is non-trend — leave room for slow ECG variants")
+    func boundaryIsNotTrend() {
+        #expect(!channel(rate: 5).isTrendChannel)
+    }
+}

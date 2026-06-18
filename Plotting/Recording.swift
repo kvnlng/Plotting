@@ -100,6 +100,15 @@ struct Channel: Codable, Equatable, Identifiable, Sendable {
     func sampleIndex(for unixMS: Int64) -> Int64 {
         Int64(Double(unixMS - startTimeUnixMS) * sampleRate / 1000.0)
     }
+
+    /// True for low-rate channels — vital trends, 1-min feature columns,
+    /// GMM state probabilities, etc. — that should render as a sparkline
+    /// strip instead of on the Metal ECG canvas. The threshold (5 Hz) sits
+    /// well above the 1/60 Hz Silver feature store grain and well below
+    /// the slowest ECG / pressure waveforms.
+    var isTrendChannel: Bool {
+        sampleRate < 5
+    }
 }
 
 struct PyramidLevel: Codable, Equatable, Sendable {

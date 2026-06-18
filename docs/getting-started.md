@@ -63,7 +63,15 @@ before you ever scrub:
   proportional to their duration. Click anywhere on a lane to jump the
   viewport to that fraction of the recording.
 
-Each channel renders as a stacked panel:
+If the record carries low-rate signals — Plotting treats anything below
+5 Hz as a "trend" channel: HR, SpO₂, etCO₂, tidal volume, GMM state
+probabilities, alarm flags, and so on — they render as a stacked
+sparkline strip below the ECG canvas, time-locked to the same viewport.
+WFDB multi-frequency records (per-signal `.dat` files with `format[xspf]`
+suffixes on each signal line) feed straight in via the existing folder
+picker; no separate ingest step.
+
+Each ECG channel renders as a stacked panel:
 
 | Element | Purpose |
 |---|---|

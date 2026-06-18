@@ -69,11 +69,13 @@ Quick links:
 xcodebuild test -project Plotting.xcodeproj -scheme Plotting
 ```
 
-105 tests covering: WFDB parsing/decoding, importer end-to-end, pyramid
+113 tests covering: WFDB parsing/decoding (including multi-frequency
+records with per-signal `.dat` files), importer end-to-end, pyramid
 construction, viewport clamping, grid-density adaptive selection,
 annotation JSON round-trip (sample-index + unix-ms), filter matching,
 manifest backward compat, the off-scale scanner, the recent-folders
-bookmark store, and the per-recording annotation summary.
+bookmark store, the per-recording annotation summary, and the
+low-rate trend channel discriminator.
 
 ## License
 

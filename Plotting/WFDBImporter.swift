@@ -44,18 +44,24 @@ enum WFDBImporter {
         let header = try WFDBHeaderParser.parse(url: heaURL)
         guard !header.signals.isEmpty else { throw WFDBImportError.noSignals }
 
-        // All signals must share the same .dat file (single-file record).
-        guard let datFilename = header.signals.first?.filename else { throw WFDBImportError.noSignals }
+        // Resolve the location of the first signal's .dat (acts as the
+        // search-root hint for the multi-file decoder). Each distinct
+        // filename referenced by `header.signals` is opened by the decoder.
+        guard let firstFilename = header.signals.first?.filename else { throw WFDBImportError.noSignals }
         let heaDir = heaURL.deletingLastPathComponent()
-        let datURL = heaDir.appendingPathComponent(datFilename)
+        let firstDatURL = heaDir.appendingPathComponent(firstFilename)
 
-        let needsDatScope = datURL.startAccessingSecurityScopedResource()
-        defer { if needsDatScope { datURL.stopAccessingSecurityScopedResource() } }
-        guard FileManager.default.fileExists(atPath: datURL.path) else {
-            throw WFDBImportError.missingDatFile(datURL)
+        // Confirm every distinct sample-file referenced by the header exists
+        // before we start decoding — fail fast with a clear missing-file
+        // error instead of partway through.
+        for filename in Set(header.signals.map(\.filename)) {
+            let url = heaDir.appendingPathComponent(filename)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw WFDBImportError.missingDatFile(url)
+            }
         }
 
-        let allSamples = try WFDBSampleDecoder.decode(datURL: datURL, header: header)
+        let allSamples = try WFDBSampleDecoder.decode(datURL: firstDatURL, header: header)
 
         let startDate = header.startDate ?? Date()
         let startMS = Int64(startDate.timeIntervalSince1970 * 1000)
@@ -71,6 +77,10 @@ enum WFDBImporter {
         for (signalIdx, signal) in header.signals.enumerated() {
             let signalSamples = allSamples[signalIdx]
             let sampleCount = Int64(signalSamples.count)
+            // Multi-frequency records carry a per-signal sample rate via
+            // `samplesPerFrame`. For single-rate records this equals the
+            // header's base rate.
+            let signalSampleRate = header.sampleRate(for: signal)
             grandTotalSamples += sampleCount
 
             let storageFileName = "channel_\(safeFileName(signal.label)).bin"
@@ -79,14 +89,14 @@ enum WFDBImporter {
             let channelHeader = BinaryRecordingHeader(
                 version: BinaryRecordingHeader.currentVersion,
                 startTimeUnixMS: startMS,
-                sampleRateHz: header.samplingFrequency,
+                sampleRateHz: signalSampleRate,
                 sampleCount: sampleCount
             )
             try BinaryRecordingFile.write(samples: signalSamples, header: channelHeader, to: storageURL)
 
             let builder = try PyramidBuilder(
                 channelName: signal.label,
-                baseSampleRate: header.samplingFrequency,
+                baseSampleRate: signalSampleRate,
                 startTimeUnixMS: startMS,
                 directory: directory
             )
@@ -97,7 +107,7 @@ enum WFDBImporter {
                 id: UUID(),
                 name: signal.label,
                 unit: signal.unit,
-                sampleRate: header.samplingFrequency,
+                sampleRate: signalSampleRate,
                 startTimeUnixMS: startMS,
                 sampleCount: sampleCount,
                 storageFileName: storageFileName,
@@ -110,11 +120,16 @@ enum WFDBImporter {
             progress?(ImportProgress(bytesRead: done, totalBytes: total))
         }
 
+        // Annotations resolve unix-millis timestamps via the recording's
+        // highest-rate channel — that's the ECG grid the producer (and the
+        // analyst) think in. Low-rate trend channels share the same wall
+        // clock but at much coarser granularity.
+        let primarySampleRate = channels.map(\.sampleRate).max() ?? header.samplingFrequency
         let annotations = loadAnnotations(
             recordName: header.recordName,
             in: heaDir,
             recordingStartUnixMS: startMS,
-            sampleRate: header.samplingFrequency
+            sampleRate: primarySampleRate
         )
 
         let notesFileName = copyNotesIntoBundle(

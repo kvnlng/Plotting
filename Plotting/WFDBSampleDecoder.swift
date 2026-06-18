@@ -29,8 +29,8 @@ import Foundation
 enum WFDBDecodeError: LocalizedError {
     case unreadable(URL)
     case truncatedFile(expectedBytes: Int, actualBytes: Int)
-    case multipleDataFiles
-    case mixedFormats
+    case mixedFormatsInFile(URL)
+    case mixedSamplesPerFrameInFile(URL)
 
     var errorDescription: String? {
         switch self {
@@ -38,47 +38,102 @@ enum WFDBDecodeError: LocalizedError {
             return "Could not read sample file: \(url.lastPathComponent)."
         case .truncatedFile(let expected, let actual):
             return "Sample file is truncated: expected \(expected) bytes, found \(actual)."
-        case .multipleDataFiles:
-            return "Records that reference multiple .dat files are not supported."
-        case .mixedFormats:
-            return "All signals in a record must use the same storage format."
+        case .mixedFormatsInFile(let url):
+            return "Signals sharing \(url.lastPathComponent) must use the same storage format."
+        case .mixedSamplesPerFrameInFile(let url):
+            return "Signals sharing \(url.lastPathComponent) must use the same samples-per-frame (spf)."
         }
     }
 }
 
 enum WFDBSampleDecoder {
 
+    /// Decodes every signal in `header` into per-signal Float arrays.
+    ///
+    /// Signals are grouped by their `.hea`-declared filename — single-file
+    /// records (every signal sharing one `.dat`) decode in one pass, while
+    /// multi-file records (e.g. ECG and 1-min vital trends in separate
+    /// `.dat` files) decode file-by-file and stitch results back into the
+    /// header's original signal order.
+    ///
+    /// `datURL` is treated as the path to the *first* signal's file; its
+    /// parent directory is the search root for the other files.
     static func decode(datURL: URL, header: WFDBHeader) throws -> [[Float]] {
-        guard Set(header.signals.map(\.filename)).count <= 1 else {
-            throw WFDBDecodeError.multipleDataFiles
-        }
-        let formats = Set(header.signals.map(\.format))
-        guard formats.count <= 1 else { throw WFDBDecodeError.mixedFormats }
+        let parentDir = datURL.deletingLastPathComponent()
+        var output = [[Float]](repeating: [], count: header.signals.count)
 
-        let needsScope = datURL.startAccessingSecurityScopedResource()
-        defer { if needsScope { datURL.stopAccessingSecurityScopedResource() } }
-        guard let data = try? Data(contentsOf: datURL, options: [.mappedIfSafe]) else {
-            throw WFDBDecodeError.unreadable(datURL)
+        // Group signal indices by filename so each file is opened exactly
+        // once even when several signals share it.
+        var indicesByFilename: [(filename: String, indices: [Int])] = []
+        var seen: [String: Int] = [:]
+        for (idx, signal) in header.signals.enumerated() {
+            if let groupIdx = seen[signal.filename] {
+                indicesByFilename[groupIdx].indices.append(idx)
+            } else {
+                seen[signal.filename] = indicesByFilename.count
+                indicesByFilename.append((signal.filename, [idx]))
+            }
         }
 
-        let format = header.signals.first?.format ?? 16
-        if format == 212 {
-            return try decodeFormat212(data: data, signals: header.signals, declaredSampleCount: header.sampleCount)
-        } else {
-            return try decodeFormat16(data: data, signals: header.signals, declaredSampleCount: header.sampleCount)
+        for group in indicesByFilename {
+            let fileURL = parentDir.appendingPathComponent(group.filename)
+            let signalsInFile = group.indices.map { header.signals[$0] }
+
+            // Within a single file, every signal must agree on format + spf.
+            let formats = Set(signalsInFile.map(\.format))
+            guard formats.count == 1 else {
+                throw WFDBDecodeError.mixedFormatsInFile(fileURL)
+            }
+            let spfs = Set(signalsInFile.map(\.samplesPerFrame))
+            guard spfs.count == 1 else {
+                throw WFDBDecodeError.mixedSamplesPerFrameInFile(fileURL)
+            }
+            let spf = spfs.first ?? 1
+
+            let needsScope = fileURL.startAccessingSecurityScopedResource()
+            defer { if needsScope { fileURL.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]) else {
+                throw WFDBDecodeError.unreadable(fileURL)
+            }
+
+            let perSignalSampleCount = header.sampleCount * Int64(spf)
+            let decoded: [[Float]]
+            let format = signalsInFile.first?.format ?? 16
+            if format == 212 {
+                decoded = try decodeFormat212(
+                    data: data,
+                    signals: signalsInFile,
+                    declaredSampleCount: perSignalSampleCount
+                )
+            } else {
+                decoded = try decodeFormat16(
+                    data: data,
+                    signals: signalsInFile,
+                    declaredSampleCount: perSignalSampleCount
+                )
+            }
+
+            // Re-map into the header's original signal order.
+            for (localIdx, originalIdx) in group.indices.enumerated() {
+                output[originalIdx] = decoded[localIdx]
+            }
         }
+
+        return output
     }
 
     // MARK: - Format 16
 
-    /// Pure-data variant used by tests — no file I/O.
+    /// Pure-data variant used by tests — no file I/O. Every signal in `signals`
+    /// is assumed to share the same format and spf (i.e., to come from the
+    /// same `.dat` file). For multi-file decodes use `decode(datURL:header:)`.
     static func decode(
         data: Data,
         signals: [WFDBSignal],
         declaredSampleCount: Int64
     ) throws -> [[Float]] {
         let formats = Set(signals.map(\.format))
-        guard formats.count <= 1 else { throw WFDBDecodeError.mixedFormats }
+        guard formats.count <= 1 else { throw WFDBDecodeError.mixedFormatsInFile(URL(fileURLWithPath: "<test>")) }
         let format = signals.first?.format ?? 16
         if format == 212 {
             return try decodeFormat212(data: data, signals: signals, declaredSampleCount: declaredSampleCount)

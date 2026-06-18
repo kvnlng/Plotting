@@ -19,14 +19,33 @@ import Foundation
 struct WFDBHeader: Equatable, Sendable {
     let recordName: String
     let signalCount: Int
+    /// Record-level frame rate. Per-signal sample rate is `samplingFrequency *
+    /// signal.samplesPerFrame` — see `sampleRate(for:)`. Always equals the
+    /// per-signal rate for single-frequency records (spf = 1 everywhere).
     let samplingFrequency: Double
-    let sampleCount: Int64          // samples per signal (= frames); 0 if unspecified
+    /// Frames in the record. Per-signal sample count is `sampleCount *
+    /// signal.samplesPerFrame` — see `sampleCount(for:)`. Equal to the
+    /// per-signal sample count for single-frequency records.
+    let sampleCount: Int64
     let startDate: Date?
     let signals: [WFDBSignal]
     /// `#`-prefixed lines from the source `.hea`, in order, with the `#` and
     /// surrounding whitespace stripped. MIT-BIH puts patient demographics and
     /// medications here.
     let comments: [String]
+
+    /// Effective sample rate for `signal`. Multi-frequency records (e.g. a
+    /// 250 Hz ECG channel alongside a 1/60 Hz vital-sign channel) encode the
+    /// ratio via the per-signal samples-per-frame (`spf`) suffix on the
+    /// format field; for single-rate records this just returns the base.
+    func sampleRate(for signal: WFDBSignal) -> Double {
+        samplingFrequency * Double(signal.samplesPerFrame)
+    }
+
+    /// Number of samples for `signal` across the entire record.
+    func sampleCount(for signal: WFDBSignal) -> Int64 {
+        sampleCount * Int64(signal.samplesPerFrame)
+    }
 }
 
 struct WFDBSignal: Equatable, Sendable {
@@ -39,6 +58,11 @@ struct WFDBSignal: Equatable, Sendable {
     let adcResolution: Int          // bit depth (e.g. 12 or 16)
     let adcZero: Int                // ADC value for 0 input voltage
     let label: String               // signal label (e.g. "I", "II", "V1", "aVR")
+    /// Samples of this signal per record frame. Defaults to 1 (single-frequency
+    /// records). The format field's `xN` suffix carries this — e.g. `16x250`
+    /// means 250 samples of this signal per frame, so a 1-Hz frame rate base
+    /// yields an effective 250-Hz signal rate.
+    var samplesPerFrame: Int = 1
 }
 
 enum WFDBHeaderError: LocalizedError {
@@ -164,8 +188,12 @@ enum WFDBHeaderParser {
 
         let filename = parts[0]
 
-        // Format field may carry a samples-per-frame suffix: "16x2". Extract the numeric prefix.
-        let formatStr = parts[1].components(separatedBy: CharacterSet(charactersIn: "x:+"))[0]
+        // Format field may carry a samples-per-frame suffix and a skew suffix:
+        //   "16"           — single-frequency, spf = 1
+        //   "16x250"       — 250 samples of this signal per frame
+        //   "16x4:10"      — spf = 4 with 10-sample skew (skew is ignored;
+        //                    Plotting doesn't use it today)
+        let (formatStr, spf) = splitFormatField(parts[1])
         guard let format = Int(formatStr), (format == 16 || format == 212) else {
             let fmt = Int(formatStr) ?? -1
             throw WFDBHeaderError.unsupportedFormat(fmt, signal: filename)
@@ -202,8 +230,26 @@ enum WFDBHeaderParser {
             baseline: baseline,
             adcResolution: adcResolution,
             adcZero: adcZero,
-            label: label
+            label: label,
+            samplesPerFrame: spf
         )
+    }
+
+    /// Splits a WFDB format field into its numeric format and `samples per
+    /// frame` (spf). Form: `<format>[x<spf>[:<skew>]][+<offset>]`. We honor
+    /// `spf` (defaults to 1) and discard `skew` / `offset` — neither is
+    /// meaningful for the file shapes Plotting accepts today.
+    private static func splitFormatField(_ field: String) -> (formatStr: String, spf: Int) {
+        // Drop any `+offset` first.
+        let withoutOffset = field.components(separatedBy: "+")[0]
+        // Then split on `x` to separate format from spf-and-skew.
+        let xParts = withoutOffset.components(separatedBy: "x")
+        let formatStr = xParts[0]
+        guard xParts.count > 1 else { return (formatStr, 1) }
+        // spf may itself be followed by `:skew` — drop the skew piece.
+        let spfStr = xParts[1].components(separatedBy: ":")[0]
+        let spf = Int(spfStr) ?? 1
+        return (formatStr, max(1, spf))
     }
 
     /// Parses the gain field which takes forms like:

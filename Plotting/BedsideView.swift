@@ -30,15 +30,30 @@ struct BedsideView: View {
     init(recording: Recording, recordingDirectory: URL) {
         self.recording = recording
         self.recordingDirectory = recordingDirectory
-        let first = recording.channels.first
+        // Viewport + focus mode key off the first *ECG* channel — trend
+        // channels (1/60 Hz vitals, GMM states) live in their own strip and
+        // shouldn't drive viewport math.
+        let firstECG = recording.channels.first(where: { !$0.isTrendChannel })
+            ?? recording.channels.first
         _viewport = State(initialValue: RecordingViewport(
-            totalSamples: first?.sampleCount ?? 0,
-            sampleRate: first?.sampleRate ?? 250,
+            totalSamples: firstECG?.sampleCount ?? 0,
+            sampleRate: firstECG?.sampleRate ?? 250,
             initialDurationSeconds: Self.initialDurationSeconds
         ))
         // Default: focus the first lead. Single-lead is the typical analyst
         // workflow; strips mode is opt-in for cross-lead comparison.
-        _layoutMode = State(initialValue: first.map { .focus($0.id) } ?? .strips)
+        _layoutMode = State(initialValue: firstECG.map { .focus($0.id) } ?? .strips)
+    }
+
+    /// ECG / pressure channels — rendered on the Metal canvas.
+    private var ecgChannels: [Channel] {
+        recording.channels.filter { !$0.isTrendChannel }
+    }
+
+    /// Low-rate vital / state / feature channels — rendered in
+    /// `ChannelTrendStrip` below the canvas.
+    private var trendChannels: [Channel] {
+        recording.channels.filter(\.isTrendChannel)
     }
 
     /// Annotations that survive the current filter. Drives the canvas, the
@@ -60,13 +75,13 @@ struct BedsideView: View {
 
     private var focusedChannel: Channel? {
         guard case .focus(let id) = layoutMode else { return nil }
-        return recording.channels.first { $0.id == id }
+        return ecgChannels.first { $0.id == id }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             LeadChipBar(
-                channels: recording.channels,
+                channels: ecgChannels,
                 layoutMode: $layoutMode
             )
             Divider()
@@ -127,6 +142,7 @@ struct BedsideView: View {
                         sizing: .focus
                     )
                     .frame(maxHeight: .infinity)
+                    trendStrip
                 }
                 .padding(16)
             } else {
@@ -141,7 +157,7 @@ struct BedsideView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     summaryHeader
                     findingsOverview
-                    ForEach(recording.channels) { channel in
+                    ForEach(ecgChannels) { channel in
                         ChannelPanel(
                             channel: channel,
                             directory: recordingDirectory,
@@ -150,9 +166,23 @@ struct BedsideView: View {
                             sizing: .strip
                         )
                     }
+                    trendStrip
                 }
                 .padding(16)
             }
+        }
+    }
+
+    /// Sparkline panel for low-rate channels. Hidden when the recording
+    /// has no trend channels (the legacy single-rate case stays unchanged).
+    @ViewBuilder
+    private var trendStrip: some View {
+        if !trendChannels.isEmpty {
+            ChannelTrendStrip(
+                channels: trendChannels,
+                recordingDirectory: recordingDirectory,
+                viewport: viewport
+            )
         }
     }
 
