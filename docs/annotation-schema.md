@@ -7,7 +7,7 @@ nav_order: 4
 # Annotation JSON schema
 
 This page describes the wire format your analysis cluster emits so
-Plotting can render its findings. The viewer reads
+Murmur can render its findings. The viewer reads
 `<recordName>.annotations.json` next to the WFDB `.hea` and resolves
 every finding to a sample index at import time.
 
@@ -133,8 +133,8 @@ Hand-tuned categories include: `N`, `L`, `R`, `V`, `PVC`, `VT`, `VF`,
 ## Validation
 
 ```sh
-xcodebuild test -project Plotting.xcodeproj -scheme Plotting \
-  -only-testing:PlottingTests/AnnotationLoaderTests
+xcodebuild test -project Murmur.xcodeproj -scheme Murmur \
+  -only-testing:MurmurTests/AnnotationLoaderTests
 ```
 
 The `AnnotationLoaderTests` suite covers schema round-trip with both

@@ -6,7 +6,7 @@ nav_order: 5
 
 # Performance notes
 
-How Plotting stays interactive on multi-hour records.
+How Murmur stays interactive on multi-hour records.
 
 ## Static budget per frame
 

@@ -17,9 +17,9 @@ nav_order: 2
 ## Build and run
 
 ```sh
-git clone https://github.com/kvnlng/Plotting.git
-cd Plotting
-open Plotting.xcodeproj
+git clone https://github.com/kvnlng/Murmur.git
+cd Murmur
+open Murmur.xcodeproj
 ```
 
 Press ⌘R. The welcome screen offers four entry points.
@@ -63,7 +63,7 @@ before you ever scrub:
   proportional to their duration. Click anywhere on a lane to jump the
   viewport to that fraction of the recording.
 
-If the record carries low-rate signals — Plotting treats anything below
+If the record carries low-rate signals — Murmur treats anything below
 5 Hz as a "trend" channel: HR, SpO₂, etCO₂, tidal volume, GMM state
 probabilities, alarm flags, and so on — they render in their own strips
 below the ECG canvas, time-locked to the same viewport:

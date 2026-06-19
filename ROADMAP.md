@@ -1,4 +1,4 @@
-# Plotting — Roadmap
+# Murmur — Roadmap
 
 A macOS SwiftUI app for analyst review of clinical findings produced upstream
 by a cluster of analysis machines (VF/VT onset, AFib, PVCs, disease vectors).

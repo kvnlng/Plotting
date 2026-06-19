@@ -4,14 +4,14 @@ layout: default
 nav_order: 1
 ---
 
-# Plotting
+# Murmur
 
 A macOS SwiftUI app for analyst review of clinical ECG findings over
 PhysioNet WFDB recordings.
 
 Findings come from an upstream cluster of analysis machines (VF/VT onset,
 AFib, PVCs, disease vectors). The WFDB trace is the *context* an analyst
-needs to interpret each finding — Plotting renders it as a Metal-backed
+needs to interpret each finding — Murmur renders it as a Metal-backed
 ECG paper canvas with the cluster's findings overlaid.
 
 ## What's here
@@ -26,12 +26,12 @@ ECG paper canvas with the cluster's findings overlaid.
 - **[Performance notes]({{ site.baseurl }}/performance)** — how the
   pyramid + LOD selector + zero-copy GPU buffers keep pan/zoom smooth on
   multi-hour records.
-- **[Roadmap](https://github.com/kvnlng/Plotting/blob/main/ROADMAP.md)**
+- **[Roadmap](https://github.com/kvnlng/Murmur/blob/main/ROADMAP.md)**
   — current state and what's next.
 
 ## At a glance
 
-![Plotting bedside view — record sidebar on the left, Metal-backed ECG paper canvas in the middle with the focused MLII lead and three-tier grid, and the findings inspector on the right.]({{ site.baseurl }}/assets/bedside-overview.png)
+![Murmur bedside view — record sidebar on the left, Metal-backed ECG paper canvas in the middle with the focused MLII lead and three-tier grid, and the findings inspector on the right.]({{ site.baseurl }}/assets/bedside-overview.png)
 
 Three columns: the record sidebar on the left, the bedside canvas in the
 middle (lead chip bar + record-context header + Metal-backed ECG paper +
@@ -41,4 +41,4 @@ a record share the viewport so leads stay time-locked.
 
 ## Source
 
-Hosted at **[github.com/kvnlng/Plotting](https://github.com/kvnlng/Plotting)**.
+Hosted at **[github.com/kvnlng/Murmur](https://github.com/kvnlng/Murmur)**.

@@ -1,14 +1,14 @@
-# Plotting
+# Murmur
 
 A macOS SwiftUI app for analyst review of clinical ECG findings.
 
-Plotting renders PhysioNet WFDB recordings (`.hea` + `.dat`) as the *context*
+Murmur renders PhysioNet WFDB recordings (`.hea` + `.dat`) as the *context*
 an analyst needs to interpret findings produced upstream by a cluster of
 analysis machines (VF/VT onset, AFib, PVCs, disease vectors). The findings
 themselves are the primary data surface — the trace is what makes them
 readable.
 
-![Plotting bedside view — record sidebar, Metal-backed ECG paper canvas on the focused MLII lead of MIT-BIH record 107, and the findings inspector.](docs/assets/bedside-overview.png)
+![Murmur bedside view — record sidebar, Metal-backed ECG paper canvas on the focused MLII lead of MIT-BIH record 107, and the findings inspector.](docs/assets/bedside-overview.png)
 
 ## Status
 
@@ -39,7 +39,7 @@ Swift 6 and Metal.
 
 ## Documentation
 
-Full documentation lives at **https://kvnlng.github.io/Plotting** (built
+Full documentation lives at **https://kvnlng.github.io/Murmur** (built
 from [`docs/`](docs)).
 
 Quick links:
@@ -54,7 +54,7 @@ Quick links:
 
 ## Quick start
 
-1. Clone and open in Xcode 15+ (`Plotting.xcodeproj`).
+1. Clone and open in Xcode 15+ (`Murmur.xcodeproj`).
 2. ⌘R to launch.
 3. Click **Open Record Folder** and pick a directory containing a WFDB
    record (e.g. PhysioNet's MIT-BIH Arrhythmia Database). The sidebar
@@ -66,7 +66,7 @@ Quick links:
 ## Tests
 
 ```sh
-xcodebuild test -project Plotting.xcodeproj -scheme Plotting
+xcodebuild test -project Murmur.xcodeproj -scheme Murmur
 ```
 
 135 tests covering: WFDB parsing/decoding (including multi-frequency
