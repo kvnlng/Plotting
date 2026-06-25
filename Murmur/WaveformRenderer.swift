@@ -77,6 +77,23 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     private let envelopePipeline: MTLRenderPipelineState
     private let rangePipeline:    MTLRenderPipelineState
 
+    /// Snapshot of the rendering state at the moment a LOD swap began.
+    /// Held for the duration of the ~150 ms crossfade so the previous path
+    /// can be redrawn underneath the new one with complementary alpha.
+    private struct PreviousLODState {
+        var useEnvelope: Bool
+        var sampleBuffer: MTLBuffer?
+        var sampleCount: Int
+        var pyramidBuffer: MTLBuffer?
+        var pyramidBinCount: Int
+        var pyramidBinSamples: Float
+    }
+    private var previousLOD: PreviousLODState?
+    private var lodTransitionStart: CFTimeInterval?
+    /// 150 ms — long enough for the eye to perceive the fade, short enough
+    /// that rapid pinch-zooms still feel responsive.
+    static let lodTransitionDuration: CFTimeInterval = 0.15
+
     // Long-lived per-channel data
     var sampleBuffer: MTLBuffer?
     var sampleCount: Int = 0
@@ -182,6 +199,33 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
             options: .storageModeShared
         )
         sampleCount = cleaned.count
+    }
+
+    /// Snapshots the current rendering state and starts a ~150 ms timer.
+    /// Until that timer expires, `draw(in:)` will render both the snapshot
+    /// (with fading-out alpha) and whatever's current (with fading-in
+    /// alpha), so the swap between raw trace and pyramid envelope (or
+    /// between envelope levels) crossfades instead of jump-cutting.
+    /// Called by Coordinator.selectLOD before flipping `useEnvelope` or
+    /// reloading the pyramid buffer.
+    func beginLODTransition() {
+        previousLOD = PreviousLODState(
+            useEnvelope: useEnvelope,
+            sampleBuffer: sampleBuffer,
+            sampleCount: sampleCount,
+            pyramidBuffer: pyramidBuffer,
+            pyramidBinCount: pyramidBinCount,
+            pyramidBinSamples: pyramidBinSamples
+        )
+        lodTransitionStart = CACurrentMediaTime()
+    }
+
+    /// 0...1 progress through the crossfade. 1 means the transition is
+    /// complete (or never started); the new path renders at full alpha.
+    private var lodTransitionProgress: Float {
+        guard let start = lodTransitionStart else { return 1 }
+        let elapsed = CACurrentMediaTime() - start
+        return Float(min(1, max(0, elapsed / Self.lodTransitionDuration)))
     }
 
     func loadPyramid(bins: [PyramidBin], binSamples: Int) {
@@ -362,16 +406,60 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
                       color: style.gridLandmark, uniforms: &u)
         }
 
-        // 3. Trace OR envelope
+        // 3. Trace OR envelope, with optional crossfade against the
+        // previous LOD's snapshot. Fade-out the previous path first
+        // (so it's under the new one) — visually the analyst sees the
+        // old shape soften out while the new shape strengthens in.
+        let progress = lodTransitionProgress
+        if progress < 1, let prev = previousLOD {
+            let fadeOut = 1 - progress
+            if prev.useEnvelope, let prevPyramid = prev.pyramidBuffer, prev.pyramidBinCount > 0 {
+                drawEnvelope(
+                    encoder: encoder,
+                    buffer: prevPyramid,
+                    binSamples: prev.pyramidBinSamples,
+                    binCount: prev.pyramidBinCount,
+                    alphaMultiplier: fadeOut
+                )
+            } else if let prevSamples = prev.sampleBuffer, prev.sampleCount > 1 {
+                drawTrace(
+                    encoder: encoder,
+                    buffer: prevSamples,
+                    samples: prev.sampleCount,
+                    drawableSize: view.drawableSize,
+                    uniforms: &u,
+                    alphaMultiplier: fadeOut
+                )
+            }
+        }
+
         if useEnvelope, let pyramid = pyramidBuffer, pyramidBinCount > 0 {
-            drawEnvelope(encoder: encoder, buffer: pyramid)
+            drawEnvelope(
+                encoder: encoder,
+                buffer: pyramid,
+                binSamples: pyramidBinSamples,
+                binCount: pyramidBinCount,
+                alphaMultiplier: progress
+            )
         } else if let samples = sampleBuffer, sampleCount > 1 {
             drawTrace(
                 encoder: encoder,
                 buffer: samples,
+                samples: sampleCount,
                 drawableSize: view.drawableSize,
-                uniforms: &u
+                uniforms: &u,
+                alphaMultiplier: progress
             )
+        }
+
+        // If we're still mid-transition, keep ticking — the renderer is
+        // setNeedsDisplay-driven, so we have to ask for the next frame
+        // ourselves until progress hits 1.
+        if progress < 1 {
+            view.setNeedsDisplay(view.bounds)
+        } else if previousLOD != nil {
+            previousLOD = nil
+            lodTransitionStart = nil
         }
 
         // 4. Point rules
@@ -405,13 +493,15 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     private func drawTrace(
         encoder: MTLRenderCommandEncoder,
         buffer: MTLBuffer,
+        samples: Int,
         drawableSize: CGSize,
-        uniforms: inout WaveformUniforms
+        uniforms: inout WaveformUniforms,
+        alphaMultiplier: Float = 1
     ) {
         // Restrict the draw to the visible range with one sample of overscan
         // on each side so segments don't pop in/out at the chart edges.
         let lo = max(0, Int(uniforms.startSample) - 1)
-        let hi = min(sampleCount, Int(uniforms.endSample.rounded(.up)) + 1)
+        let hi = min(samples, Int(uniforms.endSample.rounded(.up)) + 1)
         let count = hi - lo
         guard count > 1 else { return }
 
@@ -428,11 +518,12 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
                 Float(max(1, drawableSize.height))
             ),
             lineWidthPx: style.traceLineWidthPx,
-            sampleCount: UInt32(sampleCount)
+            sampleCount: UInt32(samples)
         )
         encoder.setVertexBytes(&traceU, length: MemoryLayout<TraceUniformsCPU>.size, index: 1)
 
         var c = style.trace
+        c.w *= alphaMultiplier
         encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
 
         // Two vertices per sample → triangle strip ribbon. vertexStart × 2
@@ -444,7 +535,13 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         )
     }
 
-    private func drawEnvelope(encoder: MTLRenderCommandEncoder, buffer: MTLBuffer) {
+    private func drawEnvelope(
+        encoder: MTLRenderCommandEncoder,
+        buffer: MTLBuffer,
+        binSamples: Float,
+        binCount: Int,
+        alphaMultiplier: Float = 1
+    ) {
         encoder.setRenderPipelineState(envelopePipeline)
         encoder.setVertexBuffer(buffer, offset: 0, index: 0)
         var envU = EnvelopeUniformsCPU(
@@ -452,15 +549,16 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
             endSample:   uniforms.endSample,
             yMin:        uniforms.yMin,
             yMax:        uniforms.yMax,
-            binSamples:  pyramidBinSamples
+            binSamples:  binSamples
         )
         encoder.setVertexBytes(&envU, length: MemoryLayout<EnvelopeUniformsCPU>.size, index: 1)
         var c = style.envelope
+        c.w *= alphaMultiplier
         encoder.setFragmentBytes(&c, length: MemoryLayout<SIMD4<Float>>.size, index: 0)
         encoder.drawPrimitives(
             type: .triangleStrip,
             vertexStart: 0, vertexCount: 4,
-            instanceCount: pyramidBinCount
+            instanceCount: binCount
         )
     }
 

@@ -120,6 +120,7 @@ struct WaveformCanvas: NSViewRepresentable {
         func selectLOD(samplesPerPixel: Double, renderer: WaveformRenderer) {
             // Use raw whenever we're not painting >1 sample per pixel.
             guard samplesPerPixel > 1, !pyramidLevels.isEmpty else {
+                if renderer.useEnvelope { renderer.beginLODTransition() }
                 renderer.useEnvelope = false
                 loadedPyramidIndex = nil
                 return
@@ -134,11 +135,22 @@ struct WaveformCanvas: NSViewRepresentable {
                 }
             }
             guard let pickedIdx = chosen, pickedIdx < pyramidAccesses.count else {
+                if renderer.useEnvelope { renderer.beginLODTransition() }
                 renderer.useEnvelope = false
                 loadedPyramidIndex = nil
                 return
             }
-            if loadedPyramidIndex != pickedIdx {
+            // Any LOD-relevant change — flipping into envelope mode, or
+            // swapping to a different pyramid level — kicks off a fresh
+            // crossfade. beginLODTransition() snapshots the *current* state
+            // before we mutate anything, so the previous draw path stays
+            // intact for the fade-out.
+            let switchingIntoEnvelope = !renderer.useEnvelope
+            let switchingLevel       = loadedPyramidIndex != pickedIdx
+            if switchingIntoEnvelope || switchingLevel {
+                renderer.beginLODTransition()
+            }
+            if switchingLevel {
                 let level = pyramidLevels[pickedIdx]
                 let access = pyramidAccesses[pickedIdx]
                 let bins = access.bins(range: 0..<access.binCount)

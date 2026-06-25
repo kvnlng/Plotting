@@ -255,14 +255,18 @@ Three layers as agreed; all three now built:
       and the resolve target only needs the renderTarget usage flag).
       Pipeline state's `rasterSampleCount = 4` must match the view's
       `sampleCount` or Metal validation rejects the pipeline.
-- [ ] LOD crossfade — currently the trace swaps from raw samples to a
-      pyramid envelope (or between envelope levels) the instant the
-      coordinator's `selectLOD` flips. A true crossfade needs an
-      `alpha: Float` uniform threaded into the trace + envelope vertex
-      shaders, a `transitionStartTime` on the renderer, and a window
-      (~150 ms) during which both the previous and the new draw paths
-      render with complementary alphas. Defer until the visual seam
-      becomes more noticeable in practice — users haven't flagged it.
+- [x] LOD crossfade — `WaveformRenderer.beginLODTransition()` snapshots
+      the current state (useEnvelope + sample buffer + pyramid buffer +
+      binSamples), stores a `lodTransitionStart` timestamp, and for
+      ~150 ms `draw(in:)` renders both the previous and the current
+      paths with complementary alphas. No shader changes needed —
+      `colorFragment` already takes its alpha from a uniform color set
+      via `setFragmentBytes`, so modulating that per draw call is
+      sufficient. The renderer asks for redraws via
+      `view.setNeedsDisplay(view.bounds)` during the window since the
+      MTKView is `enableSetNeedsDisplay`-driven. Coordinator.selectLOD
+      kicks off a transition any time `useEnvelope` flips or
+      `loadedPyramidIndex` changes.
 
 ### Medium-term
 - [ ] Lead-specific findings — render annotations only on the channels
