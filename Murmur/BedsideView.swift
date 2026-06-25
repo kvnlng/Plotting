@@ -556,6 +556,11 @@ private struct ChannelPanel: View {
     @State private var dragStartRange: Range<Int64>?
     @State private var zoomStartWidth: Int64?
 
+    // Hover-driven tooltip: which finding is under the cursor, and where
+    // (in canvas-local coordinates) the cursor currently sits.
+    @State private var hoveredAnnotation: Annotation?
+    @State private var hoverLocation: CGPoint = .zero
+
     private static let yMin: Double = -5
     private static let yMax: Double =  5
 
@@ -605,6 +610,14 @@ private struct ChannelPanel: View {
                 startSample: viewport.startSample,
                 endSample: viewport.endSample
             )
+
+            if let hovered = hoveredAnnotation {
+                AnnotationTooltip(annotation: hovered, sampleRate: channel.sampleRate)
+                    .frame(maxWidth: 260, alignment: .leading)
+                    .offset(tooltipOffset(in: canvasSize))
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
         }
         .background(
             GeometryReader { geo in
@@ -614,8 +627,65 @@ private struct ChannelPanel: View {
         )
         .onPreferenceChange(CanvasSizeKey.self) { canvasSize = $0 }
         .contentShape(Rectangle())
+        .onContinuousHover { phase in handleHover(phase) }
         .gesture(panGesture())
         .gesture(zoomGesture())
+    }
+
+    // MARK: Hover hit-testing
+
+    private func handleHover(_ phase: HoverPhase) {
+        switch phase {
+        case .active(let location):
+            hoverLocation = location
+            hoveredAnnotation = hitTest(at: location)
+        case .ended:
+            hoveredAnnotation = nil
+        }
+    }
+
+    /// Returns the finding under `point`, preferring ranges that strictly
+    /// contain the hover sample. Otherwise picks the nearest point finding
+    /// within a small pixel tolerance so the analyst doesn't have to land
+    /// exactly on a one-pixel-wide tick.
+    private func hitTest(at point: CGPoint) -> Annotation? {
+        guard canvasSize.width > 0 else { return nil }
+        let span = max(1, viewport.endSample - viewport.startSample)
+        let fraction = max(0, min(1, Double(point.x / canvasSize.width)))
+        let hoverSample = viewport.startSample + Int64(Double(span) * fraction)
+
+        if let inside = visibleAnnotations.first(where: { ann in
+            guard ann.kind == .range else { return false }
+            let end = ann.endSampleIndex ?? ann.sampleIndex
+            return hoverSample >= ann.sampleIndex && hoverSample <= end
+        }) {
+            return inside
+        }
+
+        let tolerancePx: CGFloat = 6
+        let toleranceSamples = Int64(Double(span) * Double(tolerancePx / canvasSize.width))
+        return visibleAnnotations
+            .filter { $0.kind == .point && abs($0.sampleIndex - hoverSample) <= toleranceSamples }
+            .min(by: { abs($0.sampleIndex - hoverSample) < abs($1.sampleIndex - hoverSample) })
+    }
+
+    /// Offset the tooltip away from the cursor so the cursor itself doesn't
+    /// land inside the tooltip rectangle (which would obscure what the user
+    /// is pointing at). Flip the tooltip to the cursor's left when there
+    /// isn't enough room on the right.
+    private func tooltipOffset(in canvasSize: CGSize) -> CGSize {
+        let nudgeX: CGFloat = 14
+        let tooltipWidth: CGFloat = 240
+        let tooltipHeightApprox: CGFloat = 92
+        var x = hoverLocation.x + nudgeX
+        if x + tooltipWidth > canvasSize.width {
+            x = max(0, hoverLocation.x - nudgeX - tooltipWidth)
+        }
+        var y = hoverLocation.y + nudgeX
+        if y + tooltipHeightApprox > canvasSize.height {
+            y = max(0, hoverLocation.y - tooltipHeightApprox - nudgeX)
+        }
+        return CGSize(width: x, height: y)
     }
 
     /// Annotations that overlap the current viewport. Point findings are visible
@@ -721,209 +791,6 @@ private struct ChannelPanel: View {
     }
 }
 
-// MARK: - Overview ribbon
-
-private struct OverviewRibbon: View {
-    let channel: Channel
-    let directory: URL
-    let viewport: RecordingViewport
-    /// Findings to show as colored ticks across the full-recording overview.
-    /// Filtered by the same `FindingFilter` as the canvas, so toggling a
-    /// category chip dims its ticks here in lock-step.
-    var annotations: [Annotation] = []
-
-    @State private var bins: [PyramidBin] = []
-    @State private var loadError: String?
-
-    /// Minimum on-screen width for the viewport indicator. At deep zoom (e.g.
-    /// 10 s of a 30-min recording, ~0.5%), the proportional width is a few
-    /// pixels — too thin to see. We floor at this so the user can always
-    /// perceive where they are. Anything wider than this stays proportional.
-    private static let minIndicatorPx: CGFloat = 18
-    private static let ribbonHeight: CGFloat = 56
-    /// Minimum on-screen width for a finding tick. Point findings have zero
-    /// width by definition; floor them at 2pt so they actually render. Range
-    /// findings stay proportional once they exceed this width.
-    private static let minTickPx: CGFloat = 2
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
-                    envelopeChart
-                    annotationTicks(width: geo.size.width, height: geo.size.height)
-                    viewportIndicator(width: geo.size.width)
-                }
-                .contentShape(Rectangle())
-                .gesture(scrubGesture(width: geo.size.width))
-            }
-            .frame(height: Self.ribbonHeight)
-            scaleStrip
-        }
-        .padding(.top, 4)
-        .accessibilityIdentifier("overview-ribbon-\(channel.name)")
-        .task { await loadOverview() }
-    }
-
-    /// Thin colored ticks for each annotation at its fractional sample
-    /// position. Drawn between the envelope (background) and the viewport
-    /// indicator (foreground) so the indicator never obscures a tick, and
-    /// the envelope's gray fill stays the dominant visual under everything.
-    /// Points are minTickPx wide; ranges stay proportional once they exceed
-    /// that width.
-    private func annotationTicks(width: CGFloat, height: CGFloat) -> some View {
-        let totalSamples = Double(viewport.totalSamples)
-        // Render nothing if we don't yet know the recording's total length
-        // (loadOverview hasn't completed) or if there are no findings.
-        guard totalSamples > 0, !annotations.isEmpty else {
-            return AnyView(EmptyView())
-        }
-        return AnyView(
-            ZStack(alignment: .topLeading) {
-                ForEach(annotations) { ann in
-                    let startFrac = Double(ann.sampleIndex) / totalSamples
-                    let endSample = ann.endSampleIndex ?? ann.sampleIndex
-                    let endFrac   = Double(endSample) / totalSamples
-                    let leftPx    = CGFloat(max(0, min(1, startFrac))) * width
-                    let propWidth = CGFloat(max(0, endFrac - startFrac)) * width
-                    let tickWidth = max(Self.minTickPx, propWidth)
-                    let color     = CategoryPalette.swiftUIColor(for: ann.category)
-                    Rectangle()
-                        .fill(color.opacity(ann.kind == .point ? 0.85 : 0.45))
-                        .frame(width: tickWidth, height: height)
-                        .offset(x: leftPx)
-                        .allowsHitTesting(false)
-                }
-            }
-        )
-    }
-
-    /// "0s ──── 5.2 min — 5.5 min ──── 30.0 min" style scale strip. Shows the
-    /// recording's total extent at the edges and the current viewport in the
-    /// middle so the analyst sees both "how much we're looking at" and "where
-    /// we are" at a glance.
-    private var scaleStrip: some View {
-        HStack(alignment: .center, spacing: 4) {
-            Text(formatDuration(0))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
-            Spacer(minLength: 0)
-            Text(currentWindowLabel)
-                .font(.caption2.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
-            Text(formatDuration(totalDurationSeconds))
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.tertiary)
-        }
-        .frame(height: 12)
-    }
-
-    private var totalDurationSeconds: Double {
-        guard viewport.sampleRate > 0 else { return 0 }
-        return Double(viewport.totalSamples) / viewport.sampleRate
-    }
-
-    private var currentWindowLabel: String {
-        guard viewport.sampleRate > 0 else { return "—" }
-        let startSec = Double(viewport.startSample) / viewport.sampleRate
-        let endSec   = Double(viewport.endSample)   / viewport.sampleRate
-        let widthSec = endSec - startSec
-        return "\(formatDuration(startSec)) – \(formatDuration(endSec))  •  \(formatDuration(widthSec)) window"
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        if seconds < 60 {
-            return seconds < 10
-                ? String(format: "%.1f s", seconds)
-                : String(format: "%.0f s", seconds)
-        }
-        if seconds < 3600 { return String(format: "%.1f min", seconds / 60) }
-        return String(format: "%.1f hr", seconds / 3600)
-    }
-
-    @ViewBuilder
-    private var envelopeChart: some View {
-        if let loadError {
-            Text(loadError)
-                .font(.caption2)
-                .foregroundStyle(.red)
-        } else if bins.isEmpty {
-            Rectangle().fill(.quaternary)
-        } else {
-            Chart {
-                ForEach(Array(bins.enumerated()), id: \.offset) { idx, bin in
-                    if !bin.isNaN {
-                        AreaMark(
-                            x: .value("Bin", idx),
-                            yStart: .value("Min", bin.min),
-                            yEnd: .value("Max", bin.max)
-                        )
-                        .foregroundStyle(.secondary.opacity(0.55))
-                    }
-                }
-            }
-            .chartXAxis(.hidden)
-            .chartYAxis(.hidden)
-            .chartXScale(domain: 0...Double(max(1, bins.count - 1)))
-        }
-    }
-
-    private func viewportIndicator(width: CGFloat) -> some View {
-        let totalSamples = Double(viewport.totalSamples)
-        guard totalSamples > 0 else { return AnyView(EmptyView()) }
-        let leftFrac  = Double(viewport.startSample) / totalSamples
-        let widthFrac = Double(viewport.endSample - viewport.startSample) / totalSamples
-        // Proportional width, but never thinner than minIndicatorPx so the
-        // indicator stays perceivable at deep zoom. The indicator's center
-        // still tracks the viewport center after the floor kicks in, so the
-        // user can see where they are in the recording.
-        let propWidth = CGFloat(widthFrac) * width
-        let visibleWidth = max(Self.minIndicatorPx, propWidth)
-        let centerFrac = leftFrac + widthFrac / 2
-        let centerX = CGFloat(centerFrac) * width
-        let leftX = max(0, min(width - visibleWidth, centerX - visibleWidth / 2))
-        return AnyView(
-            RoundedRectangle(cornerRadius: 3)
-                .fill(Color.accentColor.opacity(0.20))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 3)
-                        .stroke(Color.accentColor, lineWidth: 1.25)
-                )
-                .frame(width: visibleWidth)
-                .offset(x: leftX)
-                .allowsHitTesting(false)
-        )
-    }
-
-    private func scrubGesture(width: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                guard width > 0 else { return }
-                let fraction = Double(value.location.x / width)
-                viewport.jump(toFraction: fraction)
-            }
-    }
-
-    private func loadOverview() async {
-        guard let level = selectLevel() else { return }
-        let url = directory.appendingPathComponent(level.storageFileName)
-        do {
-            let access = try PyramidLevelFile.mappedAccess(url: url)
-            let allBins = access.bins(range: 0..<access.binCount)
-            await MainActor.run { bins = allBins }
-        } catch {
-            await MainActor.run { loadError = error.localizedDescription }
-        }
-    }
-
-    private func selectLevel() -> PyramidLevel? {
-        guard !channel.pyramid.isEmpty else { return nil }
-        let target: Int64 = 400
-        return channel.pyramid.min(by: { abs($0.binCount - target) < abs($1.binCount - target) })
-    }
-}
-
 // MARK: - Layout plumbing
 
 private struct CanvasSizeKey: PreferenceKey {
@@ -933,66 +800,75 @@ private struct CanvasSizeKey: PreferenceKey {
     }
 }
 
-// MARK: - Low-rate channel partitioning
+// MARK: - Annotation tooltip
 
-/// Splits the low-rate (`isTrendChannel == true`) subset of a recording's
-/// channels into three intent-based buckets so the bedside view can render
-/// each kind in its own strip.
-///
-/// Matching is name-based and matches what the Medallion feature store
-/// emits today; producers that want explicit control can name their
-/// channels to opt in or out (e.g. naming a channel `notes_status` would
-/// flag it as an alarm because of the `_status` suffix).
-struct LowRatePartition {
-    let trends: [Channel]
-    let alarms: [Channel]
-    let quality: [Channel]
-    let spontaneous: Channel?
-    let assistControl: Channel?
+/// Floating panel rendered next to the cursor when hovering over a finding
+/// on the waveform canvas. Shows the producer's note, confidence, source,
+/// and a category-colored severity dot — the full context the analyst would
+/// otherwise have to scroll the findings panel to see.
+private struct AnnotationTooltip: View {
+    let annotation: Annotation
+    let sampleRate: Double
 
-    init(channels: [Channel]) {
-        var trends: [Channel] = []
-        var alarms: [Channel] = []
-        var quality: [Channel] = []
-        var spontaneous: Channel? = nil
-        var assist: Channel? = nil
-
-        for channel in channels {
-            let name = channel.name
-            if name == "prob_state_spontaneous" {
-                spontaneous = channel
-            } else if name == "prob_state_assist_control" {
-                assist = channel
-            } else if Self.looksLikeAlarmFlag(name) {
-                alarms.append(channel)
-            } else if Self.looksLikeQualityRatio(name) {
-                quality.append(channel)
-            } else {
-                trends.append(channel)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(CategoryPalette.swiftUIColor(for: annotation.category))
+                    .frame(width: 8, height: 8)
+                Text(annotation.displayLabel)
+                    .font(.caption.weight(.semibold))
+                Text("·")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Text(annotation.severity.rawValue.uppercased())
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+            HStack(spacing: 6) {
+                Text(timeLabel)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                if let conf = annotation.confidence {
+                    Text("·")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(String(format: "conf %.0f%%", conf * 100))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Text(annotation.source)
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let note = annotation.note, !note.isEmpty {
+                Text(note)
+                    .font(.caption2)
+                    .italic()
+                    .foregroundStyle(.primary)
+                    .lineLimit(3)
+                    .padding(.top, 2)
             }
         }
-
-        self.trends = trends
-        self.alarms = alarms
-        self.quality = quality
-        self.spontaneous = spontaneous
-        self.assistControl = assist
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(.thickMaterial)
+                .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
+        )
     }
 
-    /// Conservative — matches the Medallion-emitted alarm/status flags and
-    /// any future channel whose name carries the same suffix.
-    private static func looksLikeAlarmFlag(_ name: String) -> Bool {
-        let lower = name.lowercased()
-        return lower.hasSuffix("_alarm")
-            || lower.hasSuffix("_status")
-            || lower.hasSuffix("_silenced")
-    }
-
-    /// Quality / artifact-ratio channels — anything ending in `_ratio`
-    /// or whose name contains `artifact_ratio`. The Medallion paper's
-    /// canonical example is `ecg_artifact_ratio`.
-    private static func looksLikeQualityRatio(_ name: String) -> Bool {
-        let lower = name.lowercased()
-        return lower.hasSuffix("_ratio") || lower.contains("artifact_ratio")
+    private var timeLabel: String {
+        guard sampleRate > 0 else { return "—" }
+        let startSec = Double(annotation.sampleIndex) / sampleRate
+        if let endSample = annotation.endSampleIndex, annotation.kind == .range {
+            let endSec = Double(endSample) / sampleRate
+            return String(format: "%.2f s – %.2f s", startSec, endSec)
+        }
+        return String(format: "@ %.2f s", startSec)
     }
 }
+
