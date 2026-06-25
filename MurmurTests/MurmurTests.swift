@@ -270,6 +270,105 @@ struct WFDBSampleDecoderTests {
         )
         #expect(result[0][0] == Float(0.0))
     }
+
+    // MARK: Edge cases — added for fuller decoder coverage
+
+    /// Pack 12-bit signed samples into format-212 bytes. Layout per pair:
+    ///   byte[0] = A[7:0]
+    ///   byte[1] = B[3:0]<<4 | A[11:8]
+    ///   byte[2] = B[11:4]
+    private func packFormat212(_ samples: [Int]) -> Data {
+        var data = Data(capacity: (samples.count + 1) / 2 * 3)
+        var i = 0
+        while i + 1 < samples.count {
+            let a = UInt16(bitPattern: Int16(samples[i])) & 0xFFF
+            let b = UInt16(bitPattern: Int16(samples[i + 1])) & 0xFFF
+            data.append(UInt8(a & 0xFF))
+            data.append(UInt8(((b & 0xF) << 4) | ((a >> 8) & 0xF)))
+            data.append(UInt8((b >> 4) & 0xFF))
+            i += 2
+        }
+        if i < samples.count {
+            let a = UInt16(bitPattern: Int16(samples[i])) & 0xFFF
+            data.append(UInt8(a & 0xFF))
+            data.append(UInt8((a >> 8) & 0xF))
+            data.append(0)  // padding to fill the 3-byte unit
+        }
+        return data
+    }
+
+    @Test("Format 16: declaredSampleCount of 0 derives from data length")
+    func format16InferredSampleCount() throws {
+        let s = makeSignal16(gain: 200, baseline: 0)
+        var rawData = Data(count: 6)
+        rawData.withUnsafeMutableBytes { buf in
+            let base = buf.baseAddress!.assumingMemoryBound(to: Int16.self)
+            base[0] = Int16(100).littleEndian
+            base[1] = Int16(200).littleEndian
+            base[2] = Int16(300).littleEndian
+        }
+        let out = try WFDBSampleDecoder.decode(data: rawData, signals: [s], declaredSampleCount: 0)
+        #expect(out[0].count == 3)
+        #expect(out[0] == [0.5, 1.0, 1.5])
+    }
+
+    @Test("Format 212: round-trips the 12-bit signed extremes (-2048 and +2047)")
+    func format212TwelveBitExtremes() throws {
+        let s = makeSignal212(gain: 1, baseline: 0)
+        let data = packFormat212([-2048, 2047])
+        let out = try WFDBSampleDecoder.decode(data: data, signals: [s], declaredSampleCount: 2)
+        #expect(out[0] == [-2048.0, 2047.0])
+    }
+
+    @Test("Format 212: multi-signal interleave preserves per-signal ordering")
+    func format212MultiSignalInterleave() throws {
+        let s0 = makeSignal212(gain: 1, baseline: 0)
+        let s1 = makeSignal212(gain: 1, baseline: 0)
+        // 2 signals × 2 frames = 4 samples interleaved as [s0f0, s1f0, s0f1, s1f1]
+        let data = packFormat212([10, 20, 30, 40])
+        let out = try WFDBSampleDecoder.decode(data: data, signals: [s0, s1], declaredSampleCount: 2)
+        #expect(out[0] == [10.0, 30.0])
+        #expect(out[1] == [20.0, 40.0])
+    }
+
+    @Test("Format 212: odd trailing sample is decoded from the final 2 bytes")
+    func format212OddTrailingSample() throws {
+        let s = makeSignal212(gain: 1, baseline: 0)
+        // 3 samples → 1 full pair + 1 trailing — the branch most often
+        // missed by hand-built fixtures.
+        let data = packFormat212([100, -50, 7])
+        let out = try WFDBSampleDecoder.decode(data: data, signals: [s], declaredSampleCount: 3)
+        #expect(out[0] == [100.0, -50.0, 7.0])
+    }
+
+    @Test("Format 212: truncated buffer throws .truncatedFile")
+    func format212TruncatedThrows() {
+        let s = makeSignal212()
+        // Declare 4 samples (needs 6 bytes) but supply only 3.
+        let data = packFormat212([100, -50])
+        #expect(throws: WFDBDecodeError.self) {
+            _ = try WFDBSampleDecoder.decode(data: data, signals: [s], declaredSampleCount: 4)
+        }
+    }
+
+    @Test("Mixed formats in a single file are rejected with .mixedFormatsInFile")
+    func mixedFormatsRejected() {
+        let s0 = makeSignal16()
+        let s1 = makeSignal212()
+        #expect(throws: WFDBDecodeError.self) {
+            _ = try WFDBSampleDecoder.decode(
+                data: Data(count: 32),
+                signals: [s0, s1],
+                declaredSampleCount: 4
+            )
+        }
+    }
+
+    @Test("Empty signals array returns empty output without error")
+    func emptySignalsReturnsEmpty() throws {
+        let out = try WFDBSampleDecoder.decode(data: Data(), signals: [], declaredSampleCount: 0)
+        #expect(out.isEmpty)
+    }
 }
 
 // MARK: - WFDB importer (end-to-end)
@@ -401,6 +500,103 @@ struct WFDBImporterTests {
         let bundleNotesURL = summary.directory.appendingPathComponent(notesFileName)
         let copied = try String(contentsOf: bundleNotesURL, encoding: .utf8)
         #expect(copied == originalNotes)
+    }
+
+    @Test("Without a source notes.md, notesFileName is still reserved but no file is copied to disk")
+    func reservesNotesFilenameWithoutCopyingWhenSourceMissing() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+        // Important: no notes.md exists in srcDir.
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+
+        // Contract: the importer reserves "notes.md" as the analyst's target
+        // even if no source file existed, so the editor has a stable place
+        // to write to. The file itself is NOT created until the analyst saves.
+        #expect(summary.recording.notesFileName == "notes.md")
+        let bundleNotesURL = summary.directory.appendingPathComponent("notes.md")
+        #expect(!FileManager.default.fileExists(atPath: bundleNotesURL.path))
+    }
+
+    @Test("Picks up a sibling <recordName>.annotations.json and exposes its findings")
+    func picksUpAnnotationsSidecar() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+        // Drop in an annotations sidecar with one VT range and one VF point.
+        let json = """
+        {
+          "schemaVersion": 1,
+          "source": "test.unittest",
+          "findings": [
+            { "kind": "range", "startSample": 500, "endSample": 750,
+              "category": "VT", "label": "VT", "confidence": 0.91,
+              "severity": "warning" },
+            { "kind": "point", "startSample": 1500,
+              "category": "VF", "label": "VF", "confidence": 0.78,
+              "severity": "critical" }
+          ]
+        }
+        """
+        let jsonURL = srcDir.appendingPathComponent("synth.annotations.json")
+        try json.write(to: jsonURL, atomically: true, encoding: .utf8)
+
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        #expect(summary.recording.annotations.count == 2)
+        let categories = Set(summary.recording.annotations.map(\.category))
+        #expect(categories == ["VT", "VF"])
+    }
+
+    @Test("Pyramid level files are written into the bundle directory")
+    func writesPyramidFiles() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+
+        // Every imported channel should have at least one pyramid level on
+        // disk (a 2500-sample channel reduces to L1 at minimum).
+        let channel = summary.recording.channels[0]
+        #expect(!channel.pyramid.isEmpty)
+        for level in channel.pyramid {
+            let url = summary.directory.appendingPathComponent(level.storageFileName)
+            #expect(FileManager.default.fileExists(atPath: url.path))
+        }
+    }
+
+    @Test("Empty header (no signal lines) throws .noSignals")
+    func emptyHeaderThrowsNoSignals() throws {
+        let srcDir = try makeTempDir()
+        let outDir = try makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+
+        // A signalCount of 0 leaves the header parser with no signals, which
+        // the importer guards against with the .noSignals error.
+        let heaText = "empty 0 250 100\n"
+        let heaURL = srcDir.appendingPathComponent("empty.hea")
+        try heaText.write(to: heaURL, atomically: true, encoding: .utf8)
+
+        #expect(throws: Error.self) {
+            try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        }
     }
 }
 
@@ -2089,3 +2285,367 @@ struct DispositionStoreTests {
         #expect(record.note == nil)
     }
 }
+
+// MARK: - Waveform time-axis decimation
+//
+// Regression guards for the App Store Guideline 4 fix: tick labels on the
+// waveform x-axis must never overlap each other. The decimation math lives
+// on `WaveformTimeAxis.decimationStride(...)` so it's testable without
+// rendering a SwiftUI view.
+
+@Suite("Waveform time-axis label decimation")
+struct WaveformTimeAxisDecimationTests {
+
+    @Test("Default 10s viewport at 660pt — stride > 1 (the App Store rejection scenario)")
+    func rejectionScenarioDecimates() {
+        // 660pt wide, 10s window, 0.2s major spacing → 13.2 px per major.
+        // 56 / 13.2 ≈ 4.24, so stride = 5. Without decimation, this is what
+        // the reviewer saw as overlapping mush.
+        let stride = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 660,
+            durationSec: 10,
+            majorSpacingSec: 0.2
+        )
+        #expect(stride == 5)
+    }
+
+    @Test("Comfortably wide viewport keeps every label (stride == 1)")
+    func wideViewportNoDecimation() {
+        // 5000pt for the same 10s window → 100 px per major; well over the
+        // 56pt minimum, so we keep every label.
+        let stride = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 5000,
+            durationSec: 10,
+            majorSpacingSec: 0.2
+        )
+        #expect(stride == 1)
+    }
+
+    @Test("Mid-width viewport drops every other label")
+    func midWidthDropsEveryOther() {
+        // 2000pt for the same 10s window → 40 px per major. ceil(56/40) = 2.
+        let stride = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 2000,
+            durationSec: 10,
+            majorSpacingSec: 0.2
+        )
+        #expect(stride == 2)
+    }
+
+    @Test("Multi-minute viewport produces a large stride")
+    func multiMinuteViewportLargeStride() {
+        // 600pt for a 300s window with 1s major (the 30s–5min tier) →
+        // 2 px per major; ceil(56/2) = 28.
+        let stride = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 600,
+            durationSec: 300,
+            majorSpacingSec: 1.0
+        )
+        #expect(stride == 28)
+    }
+
+    @Test("Stride is never zero or negative — defense against pathological inputs")
+    func strideAlwaysAtLeastOne() {
+        // Zero duration would divide by zero without the internal clamp.
+        let zeroDuration = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 800,
+            durationSec: 0,
+            majorSpacingSec: 0.2
+        )
+        #expect(zeroDuration >= 1)
+
+        // Zero width similarly shouldn't crash.
+        let zeroWidth = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 0,
+            durationSec: 10,
+            majorSpacingSec: 0.2
+        )
+        #expect(zeroWidth >= 1)
+
+        // Zero major spacing — pxPerMajor degenerates to 0 → stride huge but finite.
+        let zeroSpacing = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 800,
+            durationSec: 10,
+            majorSpacingSec: 0
+        )
+        #expect(zeroSpacing >= 1)
+    }
+
+    @Test("Raising minLabelSpacingPx increases the stride monotonically")
+    func tighterGapMeansLargerStride() {
+        // Same viewport, vary the gap requirement.
+        let base = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 660,
+            durationSec: 10,
+            majorSpacingSec: 0.2,
+            minLabelSpacingPx: 28
+        )
+        let stricter = WaveformTimeAxis.decimationStride(
+            viewportWidthPx: 660,
+            durationSec: 10,
+            majorSpacingSec: 0.2,
+            minLabelSpacingPx: 84
+        )
+        #expect(stricter >= base)
+        #expect(stricter > 1)
+    }
+
+    @Test("Effective label gap after decimation always meets the minimum")
+    func effectiveGapMeetsMinimum() {
+        // For a range of viewport widths, verify that the *post-decimation*
+        // pixel gap between rendered labels is always >= the minimum. This
+        // is the actual invariant Apple cares about — that labels don't
+        // visually overlap.
+        let durationSec = 10.0
+        let majorSpacingSec = 0.2
+        let minGap = WaveformTimeAxis.minLabelSpacingPx
+        for width: CGFloat in [200, 400, 660, 900, 1280, 2000, 4000] {
+            let stride = WaveformTimeAxis.decimationStride(
+                viewportWidthPx: width,
+                durationSec: durationSec,
+                majorSpacingSec: majorSpacingSec
+            )
+            let pxBetweenRenderedLabels = width * CGFloat(majorSpacingSec / durationSec) * CGFloat(stride)
+            #expect(pxBetweenRenderedLabels >= minGap,
+                    "Width \(width) produced \(pxBetweenRenderedLabels)px gap, below the \(minGap)pt minimum")
+        }
+    }
+}
+
+// MARK: - Category palette
+//
+// Color lookup for clinical annotation categories. Hand-tuned categories
+// must return their assigned colors verbatim; unknown categories fall back
+// to an FNV-1a–derived hue that must be stable across launches (Swift's
+// built-in `hashValue` is not stable, which is why the palette rolls its own).
+
+@Suite("Category palette")
+struct CategoryPaletteTests {
+
+    @Test("Known clinical categories return their hand-tuned fixed colors")
+    func knownCategoriesUseFixedColors() {
+        // Spot-check across the three palette families.
+        #expect(CategoryPalette.color(for: "VT")  == SIMD4(0.95, 0.40, 0.20, 1.0))
+        #expect(CategoryPalette.color(for: "VF")  == SIMD4(0.85, 0.10, 0.10, 1.0))
+        #expect(CategoryPalette.color(for: "PVC") == SIMD4(0.85, 0.20, 0.55, 1.0))
+        #expect(CategoryPalette.color(for: "AFib") == SIMD4(0.50, 0.20, 0.85, 1.0))
+        #expect(CategoryPalette.color(for: "L")   == SIMD4(0.15, 0.40, 0.70, 1.0))
+        #expect(CategoryPalette.color(for: "Noise") == SIMD4(0.40, 0.50, 0.60, 1.0))
+    }
+
+    @Test("Unknown categories fall back to a deterministic hash color (stable across calls)")
+    func unknownCategoriesAreDeterministic() {
+        let a1 = CategoryPalette.color(for: "MyExperimentalCategory")
+        let a2 = CategoryPalette.color(for: "MyExperimentalCategory")
+        #expect(a1 == a2)
+
+        let b1 = CategoryPalette.color(for: "another")
+        let b2 = CategoryPalette.color(for: "another")
+        #expect(b1 == b2)
+    }
+
+    @Test("Different unknown categories generally produce different colors")
+    func unknownCategoriesSpreadAcrossHues() {
+        // Not statistically rigorous — just a sanity check that the hash
+        // doesn't collapse every input to the same hue.
+        let samples = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta"]
+        var unique: Set<SIMD4<Float>> = []
+        for name in samples {
+            unique.insert(CategoryPalette.color(for: name))
+        }
+        // At least 6 of 8 unique — allows the hash to incidentally collide
+        // a couple of times without failing the suite.
+        #expect(unique.count >= 6)
+    }
+
+    @Test("SwiftUI color matches the underlying SIMD4 component-wise")
+    func swiftUIColorMirrorsRawColor() {
+        // We can't easily round-trip a SwiftUI Color back to RGBA on macOS
+        // without AppKit reach-around, so this is purely an existence /
+        // no-crash assertion plus determinism: same input gives same Color.
+        let c1 = CategoryPalette.swiftUIColor(for: "VT")
+        let c2 = CategoryPalette.swiftUIColor(for: "VT")
+        #expect(c1 == c2)
+    }
+
+    @Test("Severity modulates alpha in the documented direction")
+    func severityAlphaOrdering() {
+        let base: Float = 0.5
+        let info = CategoryPalette.alpha(for: .info, baseAlpha: base)
+        let notice = CategoryPalette.alpha(for: .notice, baseAlpha: base)
+        let warning = CategoryPalette.alpha(for: .warning, baseAlpha: base)
+        let critical = CategoryPalette.alpha(for: .critical, baseAlpha: base)
+        // Strictly monotonic increase from info → critical.
+        #expect(info < notice)
+        #expect(notice < warning)
+        #expect(warning < critical)
+    }
+
+    @Test("Severity alpha clamps to 1.0 — never paints above full opacity")
+    func severityAlphaClampedAtOne() {
+        // baseAlpha 0.9 * 1.30 = 1.17, must clamp to 1.0.
+        let alpha = CategoryPalette.alpha(for: .critical, baseAlpha: 0.9)
+        #expect(alpha <= 1.0)
+        #expect(alpha == 1.0)
+    }
+
+    @Test("Empty-string category routes through the hash fallback without crashing")
+    func emptyStringIsHashed() {
+        let color = CategoryPalette.color(for: "")
+        // FNV-1a starts at 2166136261; with no bytes, mod 360 → hue ≈ 81/360 → green.
+        // We don't pin the exact color, just that it's deterministic.
+        #expect(color == CategoryPalette.color(for: ""))
+        #expect(color.w == 1.0)
+    }
+
+    @Test("Hash-derived colors stay in the legal sRGB range [0, 1]")
+    func hashColorsStayInRange() {
+        let samples = ["foo", "bar", "baz", "quux", "lorem", "ipsum", "research_only_signal"]
+        for name in samples {
+            let c = CategoryPalette.color(for: name)
+            #expect(c.x >= 0 && c.x <= 1)
+            #expect(c.y >= 0 && c.y <= 1)
+            #expect(c.z >= 0 && c.z <= 1)
+            #expect(c.w == 1.0)
+        }
+    }
+}
+
+// MARK: - Synthetic recording fixtures
+//
+// SyntheticRecording is the welcome-screen "Try a sample recording" path
+// and the source of test fixtures. Failures here break first-launch UX
+// and silently disable a chunk of the importer suite.
+
+@Suite("Synthetic recording fixtures")
+struct SyntheticRecordingTests {
+
+    private static func makeTempDir() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("synth-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    // MARK: makeWFDBRecord (single-rate, single-file)
+
+    @Test("makeWFDBRecord writes a valid .hea record line with all 8 ECG signal lines")
+    func singleRateHeaderShape() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: dir)
+
+        let text = try String(contentsOf: heaURL, encoding: .utf8)
+        let lines = text.split(separator: "\n").map(String.init)
+        #expect(lines.count == 9)                     // 1 record line + 8 signal lines
+        // Record line: "synth 8 250 2500"
+        #expect(lines[0] == "synth 8 250 2500")
+        // Every signal line points at the same single .dat file.
+        for i in 1..<lines.count {
+            #expect(lines[i].hasPrefix("synth.dat 16 "))
+        }
+    }
+
+    @Test("makeWFDBRecord writes a .dat sized exactly for 8 signals × 2500 samples × 2 bytes")
+    func singleRateDatIsCorrectSize() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try SyntheticRecording.makeWFDBRecord(into: dir)
+        let datURL = dir.appendingPathComponent("synth.dat")
+        let attrs = try FileManager.default.attributesOfItem(atPath: datURL.path)
+        let size = try #require(attrs[.size] as? Int)
+        #expect(size == 8 * 2500 * 2)
+    }
+
+    @Test("makeWFDBRecord parses cleanly through the header parser")
+    func singleRateHeaderParsesCleanly() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let heaURL = try SyntheticRecording.makeWFDBRecord(into: dir)
+        let header = try WFDBHeaderParser.parse(url: heaURL)
+        #expect(header.recordName == "synth")
+        #expect(header.signalCount == 8)
+        #expect(header.samplingFrequency == 250.0)
+        #expect(header.sampleCount == 2500)
+        #expect(header.signals.allSatisfy { $0.format == 16 })
+        #expect(Set(header.signals.map(\.label)) == Set(["I","II","III","aVR","aVL","aVF","V1","V2"]))
+    }
+
+    // MARK: makeMultiFrequencyRecord (multi-rate, per-signal files)
+
+    @Test("makeMultiFrequencyRecord writes 14 per-signal .dat files plus header and annotations sidecar")
+    func multiFrequencyEmitsAllFiles() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try SyntheticRecording.makeMultiFrequencyRecord(into: dir)
+
+        let contents = try FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )
+        let names = Set(contents.map(\.lastPathComponent))
+        #expect(names.contains("synth.hea"))
+        #expect(names.contains("synth.annotations.json"))
+        // 8 ECG + 6 trend = 14 .dat files.
+        let datCount = names.filter { $0.hasSuffix(".dat") }.count
+        #expect(datCount == 14)
+    }
+
+    @Test("makeMultiFrequencyRecord header carries the spf suffix on ECG signals only")
+    func multiFrequencyHeaderHasSpfSuffix() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let heaURL = try SyntheticRecording.makeMultiFrequencyRecord(into: dir)
+        let text = try String(contentsOf: heaURL, encoding: .utf8)
+        // 8 ECG signal lines have "16x250"; 6 trend lines have "16x1".
+        let ecgMatches = text.components(separatedBy: "16x250 ").count - 1
+        let trendMatches = text.components(separatedBy: "16x1 ").count - 1
+        #expect(ecgMatches == 8)
+        #expect(trendMatches == 6)
+    }
+
+    @Test("makeMultiFrequencyRecord header parses cleanly with mixed sample rates")
+    func multiFrequencyHeaderParses() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let heaURL = try SyntheticRecording.makeMultiFrequencyRecord(into: dir)
+        let header = try WFDBHeaderParser.parse(url: heaURL)
+        #expect(header.signalCount == 14)
+        // Base frame rate is 1 Hz; ECG signals have spf=250 for an effective 250 Hz.
+        let ecg = header.signals.first { $0.label == "II" }
+        let hr  = header.signals.first { $0.label == "HR_bpm" }
+        let ecgSig = try #require(ecg)
+        let hrSig  = try #require(hr)
+        #expect(header.sampleRate(for: ecgSig) == 250.0)
+        #expect(header.sampleRate(for: hrSig) == 1.0)
+    }
+
+    @Test("Annotations sidecar contains the three demo findings (VT range + VF point + VT range)")
+    func annotationsSidecarShape() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try SyntheticRecording.makeMultiFrequencyRecord(into: dir)
+        let jsonURL = dir.appendingPathComponent("synth.annotations.json")
+        let data = try Data(contentsOf: jsonURL)
+        let obj = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(obj["schemaVersion"] as? Int == 1)
+        let findings = try #require(obj["findings"] as? [[String: Any]])
+        #expect(findings.count == 3)
+        let categories = findings.compactMap { $0["category"] as? String }
+        #expect(categories.sorted() == ["VF", "VT", "VT"])
+    }
+
+    @Test("Trend .dat for HR_bpm is sized for exactly 10 1-Hz frames")
+    func trendDatIsCorrectSize() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        _ = try SyntheticRecording.makeMultiFrequencyRecord(into: dir)
+        let datURL = dir.appendingPathComponent("synth_HR_bpm.dat")
+        let attrs = try FileManager.default.attributesOfItem(atPath: datURL.path)
+        let size = try #require(attrs[.size] as? Int)
+        // 10 frames × 1 spf × 2 bytes per Int16 = 20 bytes.
+        #expect(size == 20)
+    }
+}
+

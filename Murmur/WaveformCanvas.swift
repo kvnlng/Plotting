@@ -150,15 +150,39 @@ struct WaveformTimeAxis: View {
 
     /// Minimum pixel gap between rendered tick labels. ~6 chars at caption2
     /// monospaced is ~42 pt; pad to 56 so the gap reads clean at every zoom.
-    private static let minLabelSpacingPx: CGFloat = 56
+    static let minLabelSpacingPx: CGFloat = 56
+
+    /// Computes the keep-every-Nth stride that prevents tick labels from
+    /// overlapping. Extracted so the App-Store-rejection-driving decimation
+    /// guarantee is unit-testable without rendering a SwiftUI view.
+    /// - Parameters:
+    ///   - viewportWidthPx: The full chart width in points.
+    ///   - durationSec: The visible window in seconds.
+    ///   - majorSpacingSec: Seconds between major gridlines (from ECGGridSpec).
+    ///   - minLabelSpacingPx: Minimum on-screen gap between rendered labels.
+    /// - Returns: An integer `stride >= 1`. Render only majors whose index
+    ///   is a multiple of this stride.
+    static func decimationStride(
+        viewportWidthPx: CGFloat,
+        durationSec: Double,
+        majorSpacingSec: Double,
+        minLabelSpacingPx: CGFloat = WaveformTimeAxis.minLabelSpacingPx
+    ) -> Int {
+        let duration = max(0.0001, durationSec)
+        let pxPerMajor = viewportWidthPx * CGFloat(majorSpacingSec / duration)
+        return max(1, Int(ceil(minLabelSpacingPx / max(0.0001, pxPerMajor))))
+    }
 
     var body: some View {
         GeometryReader { geo in
             let duration = max(0.0001, endTime - startTime)
             let spec = ECGGridSpec.forDuration(seconds: duration)
             let majors = makeGridLines(from: startTime, to: endTime, every: spec.xMajor)
-            let pxPerMajor = geo.size.width * CGFloat(spec.xMajor / duration)
-            let stride = max(1, Int(ceil(Self.minLabelSpacingPx / max(0.0001, pxPerMajor))))
+            let stride = Self.decimationStride(
+                viewportWidthPx: geo.size.width,
+                durationSec: duration,
+                majorSpacingSec: spec.xMajor
+            )
             ForEach(Array(majors.enumerated()), id: \.offset) { index, t in
                 if index.isMultiple(of: stride) {
                     let xFrac = (t - startTime) / duration
