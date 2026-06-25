@@ -722,9 +722,13 @@ private struct ChannelPanel: View {
         )
         .onPreferenceChange(CanvasSizeKey.self) { canvasSize = $0 }
         .contentShape(Rectangle())
-        .onContinuousHover { phase in handleHover(phase) }
+        // Gestures attach FIRST so the AppKit gesture recognizer wins
+        // dispatch over the tracking area that .onContinuousHover installs.
+        // On macOS, putting .onContinuousHover before .gesture(...) starves
+        // the drag of mouse-down events.
         .gesture(panGesture())
         .gesture(zoomGesture())
+        .onContinuousHover { phase in handleHover(phase) }
     }
 
     // MARK: Hover hit-testing
@@ -742,9 +746,9 @@ private struct ChannelPanel: View {
     }
 
     /// 1-px vertical line at the cursor with a floating time label at the
-    /// top edge. The line is drawn in SwiftUI rather than Metal — at this
-    /// width the GPU win is negligible and the SwiftUI version inherits the
-    /// canvas's drawing context for free.
+    /// top edge. The Rectangle needs an explicit height — without one, the
+    /// inner ZStack collapses to the Text's intrinsic height (~12 pt) and
+    /// the crosshair vanishes into the top band of the canvas.
     @ViewBuilder
     private var hoverCrosshair: some View {
         let cursorX = max(0, min(canvasSize.width, hoverLocation.x))
@@ -754,8 +758,8 @@ private struct ChannelPanel: View {
 
         ZStack(alignment: .top) {
             Rectangle()
-                .fill(Color.accentColor.opacity(0.65))
-                .frame(width: 1)
+                .fill(Color.accentColor.opacity(0.7))
+                .frame(width: 1, height: canvasSize.height)
                 .offset(x: cursorX - 0.5)
             Text(String(format: "%.3f s", cursorTime))
                 .font(.caption2.monospacedDigit())
@@ -768,6 +772,7 @@ private struct ChannelPanel: View {
                 )
                 .offset(x: max(0, min(canvasSize.width - 56, cursorX - 28)), y: 4)
         }
+        .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
         .allowsHitTesting(false)
     }
 
