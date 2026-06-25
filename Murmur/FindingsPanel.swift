@@ -149,7 +149,7 @@ struct FindingsPanel: View {
             viewport.setWidth(spanSamples + context, anchorFraction: 0.5)
         }
         let fraction = Double(centerSample) / Double(total)
-        viewport.jump(toFraction: fraction)
+        viewport.animateJump(toFraction: fraction)
     }
 }
 

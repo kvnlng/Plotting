@@ -37,6 +37,10 @@ struct WaveformCanvas: NSViewRepresentable {
         view.enableSetNeedsDisplay = true
         view.isPaused = true
         view.preferredFramesPerSecond = 120
+        // 4x MSAA — sharper trace edges at deep zoom (and crisper grid
+        // landmarks) at modest GPU cost on Apple Silicon. Must match the
+        // `rasterSampleCount` on every pipeline state in WaveformRenderer.
+        view.sampleCount = 4
 
         if let renderer = WaveformRenderer() {
             view.device = renderer.device

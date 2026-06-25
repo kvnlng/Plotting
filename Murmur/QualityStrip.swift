@@ -90,7 +90,7 @@ struct QualityStrip: View {
             .contentShape(Rectangle())
             .onTapGesture { location in
                 let fraction = max(0, min(1, Double(location.x / max(geo.size.width, 1))))
-                viewport.jump(toFraction: fraction)
+                viewport.animateJump(toFraction: fraction)
             }
         }
         .frame(height: Self.cellHeight)

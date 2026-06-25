@@ -647,6 +647,10 @@ private struct ChannelPanel: View {
     // (in canvas-local coordinates) the cursor currently sits.
     @State private var hoveredAnnotation: Annotation?
     @State private var hoverLocation: CGPoint = .zero
+    /// True while the pointer is anywhere over the canvas. Drives the
+    /// vertical crosshair + time readout — present even when there's no
+    /// finding under the cursor.
+    @State private var hoverIsActive: Bool = false
 
     private static let yMin: Double = -5
     private static let yMax: Double =  5
@@ -698,6 +702,10 @@ private struct ChannelPanel: View {
                 endSample: viewport.endSample
             )
 
+            if hoverIsActive, canvasSize.width > 0 {
+                hoverCrosshair
+            }
+
             if let hovered = hoveredAnnotation {
                 AnnotationTooltip(annotation: hovered, sampleRate: channel.sampleRate)
                     .frame(maxWidth: 260, alignment: .leading)
@@ -725,10 +733,42 @@ private struct ChannelPanel: View {
         switch phase {
         case .active(let location):
             hoverLocation = location
+            hoverIsActive = true
             hoveredAnnotation = hitTest(at: location)
         case .ended:
+            hoverIsActive = false
             hoveredAnnotation = nil
         }
+    }
+
+    /// 1-px vertical line at the cursor with a floating time label at the
+    /// top edge. The line is drawn in SwiftUI rather than Metal — at this
+    /// width the GPU win is negligible and the SwiftUI version inherits the
+    /// canvas's drawing context for free.
+    @ViewBuilder
+    private var hoverCrosshair: some View {
+        let cursorX = max(0, min(canvasSize.width, hoverLocation.x))
+        let span = max(1, viewport.endSample - viewport.startSample)
+        let cursorSample = viewport.startSample + Int64(Double(span) * Double(cursorX / canvasSize.width))
+        let cursorTime = Double(cursorSample) / channel.sampleRate
+
+        ZStack(alignment: .top) {
+            Rectangle()
+                .fill(Color.accentColor.opacity(0.65))
+                .frame(width: 1)
+                .offset(x: cursorX - 0.5)
+            Text(String(format: "%.3f s", cursorTime))
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(.thinMaterial)
+                )
+                .offset(x: max(0, min(canvasSize.width - 56, cursorX - 28)), y: 4)
+        }
+        .allowsHitTesting(false)
     }
 
     /// Returns the finding under `point`, preferring ranges that strictly
@@ -860,7 +900,22 @@ private struct ChannelPanel: View {
                 let deltaSamples = Int64(-value.translation.width * samplesPerPixel)
                 viewport.setStart(start.lowerBound + deltaSamples)
             }
-            .onEnded { _ in dragStartRange = nil }
+            .onEnded { value in
+                defer { dragStartRange = nil }
+                guard canvasSize.width > 0 else { return }
+                // DragGesture estimates a momentum trajectory in
+                // `predictedEndLocation`. The difference between the
+                // release point and the predicted rest position is the
+                // post-release displacement under the system's default
+                // deceleration, divided by ~0.5s to get a per-second
+                // velocity (which startPanMomentum then re-eases).
+                let dragVelocityPx = Double(value.predictedEndLocation.x - value.location.x)
+                let span = Double(viewport.endSample - viewport.startSample)
+                let samplesPerPixel = span / Double(canvasSize.width)
+                // Drag-right means the viewport pans left → negate.
+                let velocitySamplesPerSec = -dragVelocityPx * samplesPerPixel / 0.5
+                viewport.startPanMomentum(velocitySamplesPerSec: velocitySamplesPerSec)
+            }
     }
 
     private func zoomGesture() -> some Gesture {
@@ -887,75 +942,4 @@ private struct CanvasSizeKey: PreferenceKey {
     }
 }
 
-// MARK: - Annotation tooltip
-
-/// Floating panel rendered next to the cursor when hovering over a finding
-/// on the waveform canvas. Shows the producer's note, confidence, source,
-/// and a category-colored severity dot — the full context the analyst would
-/// otherwise have to scroll the findings panel to see.
-private struct AnnotationTooltip: View {
-    let annotation: Annotation
-    let sampleRate: Double
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(CategoryPalette.swiftUIColor(for: annotation.category))
-                    .frame(width: 8, height: 8)
-                Text(annotation.displayLabel)
-                    .font(.caption.weight(.semibold))
-                Text("·")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Text(annotation.severity.rawValue.uppercased())
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 6) {
-                Text(timeLabel)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                if let conf = annotation.confidence {
-                    Text("·")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Text(String(format: "conf %.0f%%", conf * 100))
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Text(annotation.source)
-                .font(.caption2.monospaced())
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            if let note = annotation.note, !note.isEmpty {
-                Text(note)
-                    .font(.caption2)
-                    .italic()
-                    .foregroundStyle(.primary)
-                    .lineLimit(3)
-                    .padding(.top, 2)
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(.thickMaterial)
-                .shadow(color: .black.opacity(0.18), radius: 4, x: 0, y: 2)
-        )
-    }
-
-    private var timeLabel: String {
-        guard sampleRate > 0 else { return "—" }
-        let startSec = Double(annotation.sampleIndex) / sampleRate
-        if let endSample = annotation.endSampleIndex, annotation.kind == .range {
-            let endSec = Double(endSample) / sampleRate
-            return String(format: "%.2f s – %.2f s", startSec, endSec)
-        }
-        return String(format: "@ %.2f s", startSec)
-    }
-}
 

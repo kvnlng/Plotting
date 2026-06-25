@@ -179,7 +179,7 @@ struct FindingDensityTimeline: View {
         if let onJump {
             onJump(fraction)
         } else {
-            viewport.jump(toFraction: fraction)
+            viewport.animateJump(toFraction: fraction)
         }
     }
 

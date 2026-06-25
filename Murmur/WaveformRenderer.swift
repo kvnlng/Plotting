@@ -153,6 +153,8 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         let desc = MTLRenderPipelineDescriptor()
         desc.vertexFunction   = library.makeFunction(name: vertexName)
         desc.fragmentFunction = library.makeFunction(name: fragmentName)
+        // 4x MSAA — must match `MTKView.sampleCount` in WaveformCanvas.
+        desc.rasterSampleCount = 4
         desc.colorAttachments[0].pixelFormat = .bgra8Unorm
         desc.colorAttachments[0].isBlendingEnabled = true
         desc.colorAttachments[0].rgbBlendOperation = .add

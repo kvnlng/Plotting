@@ -239,6 +239,16 @@ Three layers as agreed; all three now built:
       small panel with the category, severity, time, confidence, source,
       and the producer's note.
 
+### Canvas polish (deferred from the Metal upgrade pass)
+- [ ] LOD crossfade — currently the trace swaps from raw samples to a
+      pyramid envelope (or between envelope levels) the instant the
+      coordinator's `selectLOD` flips. A true crossfade needs an
+      `alpha: Float` uniform threaded into the trace + envelope vertex
+      shaders, a `transitionStartTime` on the renderer, and a window
+      (~150 ms) during which both the previous and the new draw paths
+      render with complementary alphas. Defer until the visual seam
+      becomes more noticeable in practice — users haven't flagged it.
+
 ### Medium-term
 - [ ] Lead-specific findings — render annotations only on the channels
       that match their `lead` field
