@@ -240,6 +240,16 @@ Three layers as agreed; all three now built:
       and the producer's note.
 
 ### Canvas polish (deferred from the Metal upgrade pass)
+- [ ] MSAA 4× on the waveform canvas. Initial attempt (set
+      `MTKView.sampleCount = 4` + `rasterSampleCount = 4` on every
+      pipeline state) crashed at first open because the renderer's
+      `draw(in:)` is set up assuming single-sample
+      `currentRenderPassDescriptor`. Proper fix:
+      `view.framebufferOnly = false`, validate that MTKView's
+      multisample resolve target attaches to the drawable correctly,
+      and audit `draw(in:)` for any single-sample assumptions.
+      Reverted in commit (see below); shipping the other four canvas
+      improvements without it.
 - [ ] LOD crossfade — currently the trace swaps from raw samples to a
       pyramid envelope (or between envelope levels) the instant the
       coordinator's `selectLOD` flips. A true crossfade needs an
