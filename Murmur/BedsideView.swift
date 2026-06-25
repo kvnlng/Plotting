@@ -222,6 +222,16 @@ struct BedsideView: View {
                     fallbackSource: "attached.\(url.deletingPathExtension().lastPathComponent)"
                 )
                 attachedAnnotations.append(contentsOf: parsed)
+                // Persist the union so reopening the bundle (or quitting and
+                // relaunching) keeps the attached findings without forcing
+                // the analyst to re-attach. Write failures are surfaced in
+                // the same alert path; nothing in the in-memory list is
+                // rolled back since attachment itself succeeded.
+                do {
+                    try BundleAnnotationsFile.write(allAnnotations, to: recordingDirectory)
+                } catch {
+                    attachError = "Findings were attached for this session but could not be saved to the bundle: \(error.localizedDescription)"
+                }
             } catch {
                 attachError = error.localizedDescription
             }

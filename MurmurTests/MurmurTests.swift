@@ -2959,3 +2959,119 @@ struct RecordingStoreTests {
     }
 }
 
+// MARK: - Bundle annotations sidecar
+//
+// The on-disk `annotations.json` that lives inside each imported recording
+// bundle. Decoupling annotations from the manifest lets re-runs of the
+// producer (or the "Attach findings…" action) update findings without
+// rewriting the much heavier recording.json.
+
+@Suite("Bundle annotations sidecar")
+struct BundleAnnotationsFileTests {
+
+    private static func makeTempDir() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bundle-ann-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }
+
+    private static func annotation(category: String = "PVC", at sample: Int64 = 100) -> Annotation {
+        Annotation(
+            kind: .point,
+            sampleIndex: sample,
+            category: category,
+            confidence: 0.9,
+            severity: .warning,
+            source: "test"
+        )
+    }
+
+    @Test("Write then read round-trips a finding list")
+    func writeThenReadRoundTrips() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let original = [Self.annotation(category: "VT"), Self.annotation(category: "VF", at: 500)]
+        try BundleAnnotationsFile.write(original, to: dir)
+        let read = try #require(BundleAnnotationsFile.read(from: dir))
+        #expect(read == original)
+    }
+
+    @Test("read returns nil when the sidecar is missing")
+    func readReturnsNilWhenAbsent() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(BundleAnnotationsFile.read(from: dir) == nil)
+    }
+
+    @Test("read returns nil for a sidecar with an unsupported schemaVersion")
+    func rejectsUnsupportedSchema() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let badPayload = """
+        { "schemaVersion": 99, "annotations": [] }
+        """
+        try badPayload.write(
+            to: dir.appendingPathComponent("annotations.json"),
+            atomically: true,
+            encoding: .utf8
+        )
+        #expect(BundleAnnotationsFile.read(from: dir) == nil)
+    }
+
+    @Test("Rewriting the sidecar replaces (not merges) prior contents")
+    func rewriteReplaces() throws {
+        let dir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try BundleAnnotationsFile.write([Self.annotation(category: "OldFinding")], to: dir)
+        try BundleAnnotationsFile.write([Self.annotation(category: "NewFinding")], to: dir)
+        let read = try #require(BundleAnnotationsFile.read(from: dir))
+        #expect(read.map(\.category) == ["NewFinding"])
+    }
+
+    @Test("Importer writes annotations.json next to recording.json")
+    func importerWritesSidecar() throws {
+        let srcDir = try Self.makeTempDir()
+        let outDir = try Self.makeTempDir()
+        defer {
+            try? FileManager.default.removeItem(at: srcDir)
+            try? FileManager.default.removeItem(at: outDir)
+        }
+        // The synthetic multi-frequency record ships an annotations sidecar
+        // already (3 demo findings), which the importer should pick up and
+        // copy into the bundle's annotations.json.
+        let heaURL = try SyntheticRecording.makeMultiFrequencyRecord(into: srcDir)
+        let summary = try WFDBImporter.importRecord(heaURL: heaURL, outputDirectory: outDir)
+        let sidecarURL = summary.directory.appendingPathComponent("annotations.json")
+        #expect(FileManager.default.fileExists(atPath: sidecarURL.path))
+        let read = try #require(BundleAnnotationsFile.read(from: summary.directory))
+        #expect(read.count == summary.recording.annotations.count)
+    }
+
+    @Test("RecordingStore.loadManifest prefers the sidecar over manifest-inline annotations")
+    @MainActor
+    func loadManifestPrefersSidecar() async throws {
+        let root = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = RecordingStore(rootURL: root)
+
+        let srcDir = try Self.makeTempDir()
+        defer { try? FileManager.default.removeItem(at: srcDir) }
+        _ = try SyntheticRecording.makeWFDBRecord(into: srcDir)
+
+        let summary = try await store.importWFDB(folderURL: srcDir, heaFilename: "synth.hea")
+        // Single-rate fixture has no sidecar in the source folder, so the
+        // importer creates an annotations.json containing [] in the bundle.
+        // Overwrite it with two attached-style findings and re-load.
+        let attached = [
+            Self.annotation(category: "AttachedVT", at: 200),
+            Self.annotation(category: "AttachedVF", at: 800)
+        ]
+        try BundleAnnotationsFile.write(attached, to: summary.directory)
+
+        let reloaded = try store.loadManifest(at: summary.directory)
+        let categories = Set(reloaded.annotations.map(\.category))
+        #expect(categories == ["AttachedVT", "AttachedVF"])
+    }
+}
+

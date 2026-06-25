@@ -150,6 +150,14 @@ enum WFDBImporter {
             notesFileName: notesFileName
         )
         try writeManifest(recording, into: directory)
+        // Write the bundle-side annotations sidecar. From here on, this file
+        // (not the inline `annotations` in recording.json) is the source of
+        // truth for the bundle's findings — RecordingStore.loadManifest
+        // overrides recording.annotations with whatever's in this sidecar,
+        // and the "Attach findings…" toolbar action rewrites this file when
+        // the analyst attaches new findings. Re-running the producer can
+        // therefore refresh findings without re-importing the .dat samples.
+        try? BundleAnnotationsFile.write(annotations, to: directory)
 
         return ImportSummary(
             recording: recording,

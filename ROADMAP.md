@@ -192,7 +192,9 @@ so existing analyst data stays intact.
   the imported bundle and records its filename on the manifest so the
   context panel can read/write it.
 
-**Tests** — 135 total (131 unit + 4 UI).
+**Tests** — 194 total (190 unit + 4 UI). All five Near-term roadmap
+items are now done; suite went 135 → 190 over the App-Store-rejection
+fix, coverage hardening, and the near-term feature work.
 
 ## Architecture
 
@@ -207,23 +209,35 @@ Three layers as agreed; all three now built:
 ## Next goals
 
 ### Near-term (next session)
-- [ ] "Attach findings…" toolbar action — pick a JSON from anywhere and
-      merge into the current recording's annotations (currently ingest is
-      folder-scan only)
-- [ ] Persist annotations separately from `recording.json` as
+- [x] "Attach findings…" toolbar action — pick a JSON from anywhere and
+      merge into the current recording's annotations (was: folder-scan
+      only). New ToolbarItem invokes a fileImporter; on pick,
+      `AnnotationLoader.parse` validates and resolves timestamps, the
+      findings join `attachedAnnotations`, and the union is persisted to
+      the bundle's `annotations.json`.
+- [x] Persist annotations separately from `recording.json` as
       `annotations.json` so re-running the analysis cluster doesn't require
-      re-importing the .dat samples
+      re-importing the .dat samples. New `BundleAnnotationsFile`
+      sidecar (schemaVersion 1 + annotations array) written by the
+      importer at import time and re-read by
+      `RecordingStore.loadManifest`, which overrides
+      `recording.annotations` with the sidecar when present.
 - [x] Schema versioning — delivered as `docs/annotations.schema.json`
       (a JSON Schema Draft 2020-12 document) plus an updated
       `docs/annotation-schema.md` with validator recipes for Python,
       Node, and Swift. Published at
       `https://kvnlng.github.io/Murmur/annotations.schema.json` so
       producers can validate output against the canonical contract.
-- [ ] Mini-timeline ticks under each channel overview ribbon — colored
-      dots at every annotation's fractional position so beat density and
-      finding clusters are visible at full-recording scale
-- [ ] Hover tooltips on the canvas — hit-test for the nearest finding and
-      show its full note + confidence + source
+- [x] Mini-timeline ticks under each channel overview ribbon — colored
+      ticks for every finding at its fractional sample position, drawn
+      between the envelope and the viewport indicator. Points are
+      minTickPx wide; ranges scale proportionally. Color from
+      CategoryPalette so the ribbon and canvas share the visual story.
+- [x] Hover tooltips on the canvas — `.onContinuousHover` hit-tests for
+      the nearest finding (ranges that strictly contain the hover sample
+      first, then point findings within a 6pt tolerance) and floats a
+      small panel with the category, severity, time, confidence, source,
+      and the producer's note.
 
 ### Medium-term
 - [ ] Lead-specific findings — render annotations only on the channels

@@ -83,13 +83,32 @@ final class RecordingStore {
         }.value
     }
 
-    /// Loads the manifest from a recording directory.
+    /// Loads the manifest from a recording directory. If a sibling
+    /// `annotations.json` sidecar exists, its findings override the manifest's
+    /// inline annotations — that's how the "Attach findings…" action and the
+    /// importer keep findings in sync with what's actually on disk without
+    /// rewriting the (much heavier) recording.json manifest.
     func loadManifest(at directory: URL) throws -> Recording {
         let manifestURL = directory.appendingPathComponent("recording.json")
         let data = try Data(contentsOf: manifestURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(Recording.self, from: data)
+        let recording = try decoder.decode(Recording.self, from: data)
+
+        guard let sidecar = BundleAnnotationsFile.read(from: directory) else {
+            return recording
+        }
+        return Recording(
+            version: recording.version,
+            id: recording.id,
+            device: recording.device,
+            createdAt: recording.createdAt,
+            sourceFileName: recording.sourceFileName,
+            channels: recording.channels,
+            annotations: sidecar,
+            headerComments: recording.headerComments,
+            notesFileName: recording.notesFileName
+        )
     }
 
     /// Lists every recording directory currently in the store.
