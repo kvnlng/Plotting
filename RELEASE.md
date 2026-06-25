@@ -116,12 +116,6 @@ When the smoke test is clean:
 
 These don't block any release but should be addressed when convenient:
 
-- **Uniquify test-target bundle IDs.** `MurmurTests` and
-  `MurmurUITests` currently share `com.kevinlong.murmur` with the
-  app target. Fix in Xcode (each test target → Signing & Capabilities
-  → Bundle Identifier) to e.g. `com.kevinlong.murmur.tests` and
-  `com.kevinlong.murmur.uitests`. Not blocking (test targets never
-  ship to the App Store), but bundle IDs should be unique per target.
 - **Set up a TestFlight internal-tester group** in App Store
   Connect → TestFlight → Internal Testing → add your Apple ID. Once
   added, every uploaded build automatically becomes installable on
