@@ -274,6 +274,12 @@ correctly the whole time but the visual symptom only manifested at
 runtime, so we burned cycles on round-trip diagnostics. Better tests
 would have caught the regressions in CI.
 
+See `docs/interaction-coverage.md` for the catalog of every analyst-facing
+interaction with its test status. **Current score: 6 ✅ automated /
+22 🟡 RELEASE.md-smoke / 1 ⬜ uncovered out of 29 (~21% automated).**
+The doc names the next 3 XCUI tests to write to push automated coverage
+toward ~38%.
+
 **Phase 1 — make existing patterns testable (1 session)**
 - [ ] Launch arg `--ui-test-zoomed-sample` that opens the synthetic
       fixture with a 1-second viewport, so drag pans actually have
