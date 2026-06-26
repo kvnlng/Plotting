@@ -132,11 +132,23 @@ No more Product → Archive → Organizer → Distribute clicks.
 
 ## Custom build steps
 
-This project doesn't need any. SPM dependencies resolve automatically
-in Xcode Cloud's environment. If we ever need pre/post-build scripts
-(e.g. generating a build-time file, lint as a hard gate), they go in
-`ci_scripts/ci_pre_xcodebuild.sh` / `ci_scripts/ci_post_xcodebuild.sh`
-at the repo root. Empty for now.
+One script in place:
+
+- **`ci_scripts/ci_post_clone.sh`** — `brew install swiftlint`. The
+  Murmur target has a "Run SwiftLint" Run Script Build Phase that
+  shells out to the installed binary. We don't use the SwiftLint SPM
+  build-tool plugin because (a) it forces a swift-syntax pin that
+  blocks other SPM deps like `swift-snapshot-testing`, and (b) Xcode
+  Cloud refuses to run SPM plugins without an explicit trust grant
+  that has no UI on hosted runners. Brew sidesteps both.
+
+Additional script hooks (currently unused): `ci_pre_xcodebuild.sh` /
+`ci_post_xcodebuild.sh` in the same directory if we ever need them.
+
+`Package.resolved` MUST stay tracked in git — Xcode Cloud disables
+automatic SPM resolution, so a missing resolved file fails the build
+with "a resolved file is required". The `.gitignore` has an explicit
+note about this.
 
 ## When something fails
 

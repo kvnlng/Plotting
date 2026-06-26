@@ -7,7 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0ABC7EAA2FDF1FC80037314C /* swiftlint in Frameworks */ = {isa = PBXBuildFile; productRef = 0ABC7EA92FDF1FC80037314C /* swiftlint */; };
+		0AC4C9532FEED49000A3D0A5 /* InlineSnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 0AC4C9522FEED49000A3D0A5 /* InlineSnapshotTesting */; };
+		0AC4C9552FEED49000A3D0A5 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 0AC4C9542FEED49000A3D0A5 /* SnapshotTesting */; };
+		0AC4C9572FEED49000A3D0A5 /* SnapshotTestingCustomDump in Frameworks */ = {isa = PBXBuildFile; productRef = 0AC4C9562FEED49000A3D0A5 /* SnapshotTestingCustomDump */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -69,7 +71,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0ABC7EAA2FDF1FC80037314C /* swiftlint in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -77,6 +78,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				0AC4C9572FEED49000A3D0A5 /* SnapshotTestingCustomDump in Frameworks */,
+				0AC4C9532FEED49000A3D0A5 /* InlineSnapshotTesting in Frameworks */,
+				0AC4C9552FEED49000A3D0A5 /* SnapshotTesting in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -117,6 +121,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 0A9B42F52FDF06BB0059C903 /* Build configuration list for PBXNativeTarget "Murmur" */;
 			buildPhases = (
+				0AC4C9502FEED21F00A3D0A5 /* Run SwiftLint */,
 				0A9B42CB2FDF06BA0059C903 /* Sources */,
 				0A9B42CC2FDF06BA0059C903 /* Frameworks */,
 				0A9B42CD2FDF06BA0059C903 /* Resources */,
@@ -124,14 +129,12 @@
 			buildRules = (
 			);
 			dependencies = (
-				0ABC7EAC2FDF1FDE0037314C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				0A9B42D12FDF06BA0059C903 /* Murmur */,
 			);
 			name = Murmur;
 			packageProductDependencies = (
-				0ABC7EA92FDF1FC80037314C /* swiftlint */,
 			);
 			productName = Murmur;
 			productReference = 0A9B42CF2FDF06BA0059C903 /* Murmur.app */;
@@ -155,6 +158,9 @@
 			);
 			name = MurmurTests;
 			packageProductDependencies = (
+				0AC4C9522FEED49000A3D0A5 /* InlineSnapshotTesting */,
+				0AC4C9542FEED49000A3D0A5 /* SnapshotTesting */,
+				0AC4C9562FEED49000A3D0A5 /* SnapshotTestingCustomDump */,
 			);
 			productName = MurmurTests;
 			productReference = 0A9B42E12FDF06BB0059C903 /* MurmurTests.xctest */;
@@ -216,7 +222,7 @@
 			mainGroup = 0A9B42C62FDF06BA0059C903;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */,
+				0AC4C9512FEED49000A3D0A5 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0A9B42D02FDF06BA0059C903 /* Products */;
@@ -254,6 +260,27 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		0AC4C9502FEED21F00A3D0A5 /* Run SwiftLint */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Run SwiftLint";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# Type a script or drag a script file from your workspace to insert its path.\nSWIFTLINT_BIN=\"\"\nif [ -x /opt/homebrew/bin/swiftlint ]; then\n    SWIFTLINT_BIN=/opt/homebrew/bin/swiftlint\nelif [ -x /usr/local/bin/swiftlint ]; then\n    SWIFTLINT_BIN=/usr/local/bin/swiftlint\nelif command -v swiftlint >/dev/null 2>&1; then\n    SWIFTLINT_BIN=swiftlint\nfi\n\nif [ -n \"$SWIFTLINT_BIN\" ]; then\n    \"$SWIFTLINT_BIN\" --config \"$SRCROOT/.swiftlint.yml\"\nelse\n    echo \"warning: SwiftLint not installed — run 'brew install swiftlint' to enable lint warnings during build\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		0A9B42CB2FDF06BA0059C903 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -288,10 +315,6 @@
 			isa = PBXTargetDependency;
 			target = 0A9B42CE2FDF06BA0059C903 /* Murmur */;
 			targetProxy = 0A9B42EC2FDF06BB0059C903 /* PBXContainerItemProxy */;
-		};
-		0ABC7EAC2FDF1FDE0037314C /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = 0ABC7EAB2FDF1FDE0037314C /* SwiftLintBuildToolPlugin */;
 		};
 /* End PBXTargetDependency section */
 
@@ -428,6 +451,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Murmur/Info.plist;
@@ -463,6 +487,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Murmur/Info.plist;
@@ -608,26 +633,31 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */ = {
+		0AC4C9512FEED49000A3D0A5 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/realm/SwiftLint";
+			repositoryURL = "https://github.com/pointfreeco/swift-snapshot-testing";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 0.63.3;
+				minimumVersion = 1.18.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		0ABC7EA92FDF1FC80037314C /* swiftlint */ = {
+		0AC4C9522FEED49000A3D0A5 /* InlineSnapshotTesting */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */;
-			productName = swiftlint;
+			package = 0AC4C9512FEED49000A3D0A5 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = InlineSnapshotTesting;
 		};
-		0ABC7EAB2FDF1FDE0037314C /* SwiftLintBuildToolPlugin */ = {
+		0AC4C9542FEED49000A3D0A5 /* SnapshotTesting */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = 0ABC7EA82FDF1FC80037314C /* XCRemoteSwiftPackageReference "SwiftLint" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
+			package = 0AC4C9512FEED49000A3D0A5 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTesting;
+		};
+		0AC4C9562FEED49000A3D0A5 /* SnapshotTestingCustomDump */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0AC4C9512FEED49000A3D0A5 /* XCRemoteSwiftPackageReference "swift-snapshot-testing" */;
+			productName = SnapshotTestingCustomDump;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

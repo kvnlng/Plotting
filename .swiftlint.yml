@@ -1,4 +1,4 @@
-# SwiftLint configuration for the Plotting app.
+# SwiftLint configuration for Murmur Studio.
 # Docs: https://github.com/realm/SwiftLint
 #
 # Run from the project root:    swiftlint
@@ -6,17 +6,18 @@
 
 # Paths SwiftLint should scan.
 included:
-  - Plotting
-  - PlottingTests
-  - PlottingUITests
+  - Murmur
+  - MurmurTests
+  - MurmurUITests
 
 # Paths SwiftLint should ignore.
 excluded:
-  - Plotting/Assets.xcassets
-  - Plotting/Plotting.xcdatamodeld
+  - Murmur/Assets.xcassets
+  - Murmur/Info.plist
   - Products
   - .build
   - DerivedData
+  - ci_scripts
 
 # Rules disabled because they fight idiomatic SwiftUI / are noisy in small apps.
 disabled_rules:

@@ -306,32 +306,33 @@ would have caught the regressions in CI.
       setup using `XCODE_CLOUD.md`. ~15 min of UI work; nothing more
       from the repo side is required.
 
-**Phase 3 — snapshot tests for SwiftUI overlays (DEFERRED — dep conflict)**
+**Phase 3 — snapshot tests for SwiftUI overlays (UNBLOCKED, baselines TODO)**
 
-Status: test cases written, SPM dependency blocked.
+Status: dep conflict resolved. SwiftLint moved off the SPM plugin to
+Homebrew + a Run Script Build Phase, which freed `swift-syntax` and
+let `swift-snapshot-testing` resolve. Test file compiles. Baseline
+images still to be recorded.
 
-- [x] `MurmurTests/SnapshotTests.swift` written. Covers the pure-data
-      overlays: `AnnotationTooltip` (point + range), `WaveformTimeAxis`
-      (default 10s + zoomed 60s), `WaveformVoltageAxis`,
-      `FindingDensityTimeline` (mixed categories), `FindingsSummaryHeader`
-      (mixed + empty). Wrapped in `#if canImport(SnapshotTesting)` so
-      it compiles to nothing until the dep lands.
-- [ ] **Blocked**: `swift-snapshot-testing` (latest 1.19.x) caps
-      `swift-syntax` at `<605`, while the in-project SwiftLint plugin
-      requires the 604/605 prerelease. They cannot co-resolve in one
-      package graph. Revisit when either:
-      - pointfreeco tags a release that bumps the `swift-syntax`
-        ceiling to ≥605, **or**
-      - we move SwiftLint from the SPM plugin to Homebrew + a Run Script
-        Build Phase (a separate refactor — would also speed up
-        incremental builds, but adds an install step to
-        `XCODE_CLOUD.md`).
+- [x] `MurmurTests/SnapshotTests.swift` covers the pure-data overlays:
+      `AnnotationTooltip` (point + range), `WaveformTimeAxis` (default
+      10s + zoomed 60s), `WaveformVoltageAxis`,
+      `FindingDensityTimeline` (mixed categories),
+      `FindingsSummaryHeader` (mixed + empty)
+- [x] `swift-snapshot-testing` 1.18.x attached to MurmurTests target.
+- [ ] User-action: record baselines. In Xcode → MurmurTests scheme →
+      run `SnapshotTests` once with `record: .all` on one
+      `assertSnapshot` call (or env var `SNAPSHOT_TESTING_RECORD=all`
+      on the scheme). Commit `MurmurTests/__Snapshots__/`. Revert the
+      `record` arg and verify a second run passes clean.
+- [ ] Pin snapshot tests to "Latest Release" only in the Xcode Cloud
+      matrix — SwiftUI metrics drift across macOS versions, so
+      multi-version snapshots will be flaky.
 - [ ] Deferred (separate task): snapshot coverage for `FindingsPanel`,
       `AlarmStrip`, `QualityStrip`, `StateBackdropStrip`. The three
       strips read channel files from a `recordingDirectory: URL`, so
       they need a disk-backed test fixture before they can be
       snapshotted. `FindingsPanel` also needs a `DispositionStore`
-      stand-in. Defer until the basic five are passing first.
+      stand-in.
 - [x] Skip the Metal canvas itself — pixel diffs across GPUs/MSAA are
       unreliable; rely on the surrounding SwiftUI for visual
       regression coverage

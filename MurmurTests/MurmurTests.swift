@@ -3,6 +3,10 @@
 //  MurmurTests
 //
 
+// swiftlint:disable file_length
+// Aggregate test suite — grows with the codebase. Splitting purely to
+// satisfy SwiftLint would scatter related tests across many files.
+
 import Foundation
 import Testing
 @testable import Murmur
