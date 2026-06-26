@@ -306,11 +306,33 @@ would have caught the regressions in CI.
       setup using `XCODE_CLOUD.md`. ~15 min of UI work; nothing more
       from the repo side is required.
 
-**Phase 3 — snapshot tests for SwiftUI overlays (lower priority)**
-- [ ] Add `swift-snapshot-testing` package
-- [ ] Reference snapshots for axes overlays, findings panel, summary
-      header, density timeline, alarm/quality/state strips
-- [ ] Skip the Metal canvas itself — pixel diffs across GPUs/MSAA are
+**Phase 3 — snapshot tests for SwiftUI overlays (DEFERRED — dep conflict)**
+
+Status: test cases written, SPM dependency blocked.
+
+- [x] `MurmurTests/SnapshotTests.swift` written. Covers the pure-data
+      overlays: `AnnotationTooltip` (point + range), `WaveformTimeAxis`
+      (default 10s + zoomed 60s), `WaveformVoltageAxis`,
+      `FindingDensityTimeline` (mixed categories), `FindingsSummaryHeader`
+      (mixed + empty). Wrapped in `#if canImport(SnapshotTesting)` so
+      it compiles to nothing until the dep lands.
+- [ ] **Blocked**: `swift-snapshot-testing` (latest 1.19.x) caps
+      `swift-syntax` at `<605`, while the in-project SwiftLint plugin
+      requires the 604/605 prerelease. They cannot co-resolve in one
+      package graph. Revisit when either:
+      - pointfreeco tags a release that bumps the `swift-syntax`
+        ceiling to ≥605, **or**
+      - we move SwiftLint from the SPM plugin to Homebrew + a Run Script
+        Build Phase (a separate refactor — would also speed up
+        incremental builds, but adds an install step to
+        `XCODE_CLOUD.md`).
+- [ ] Deferred (separate task): snapshot coverage for `FindingsPanel`,
+      `AlarmStrip`, `QualityStrip`, `StateBackdropStrip`. The three
+      strips read channel files from a `recordingDirectory: URL`, so
+      they need a disk-backed test fixture before they can be
+      snapshotted. `FindingsPanel` also needs a `DispositionStore`
+      stand-in. Defer until the basic five are passing first.
+- [x] Skip the Metal canvas itself — pixel diffs across GPUs/MSAA are
       unreliable; rely on the surrounding SwiftUI for visual
       regression coverage
 
