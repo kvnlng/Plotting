@@ -383,9 +383,42 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         descriptor.colorAttachments[0].storeAction =
             descriptor.colorAttachments[0].resolveTexture != nil ? .multisampleResolve : .store
 
-        guard let cmdBuffer = commandQueue.makeCommandBuffer(),
-              let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
-            return
+        guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
+
+        let needsFollowUp = drawScene(
+            commandBuffer: cmdBuffer,
+            descriptor: descriptor,
+            drawableSize: view.drawableSize
+        )
+
+        if needsFollowUp {
+            // Still mid-transition; renderer is setNeedsDisplay-driven, so we
+            // have to ask for the next frame ourselves until progress hits 1.
+            view.setNeedsDisplay(view.bounds)
+        }
+
+        cmdBuffer.present(drawable)
+        cmdBuffer.commit()
+    }
+
+    /// Renders the full scene (range fills → grid → trace/envelope → point rules)
+    /// into whatever the descriptor's color attachment points at. Decoupled from
+    /// MTKView so unit tests can drive it against an offscreen texture and read
+    /// back pixels — catches the "renderer init succeeds but produces blank
+    /// output" class of bugs (bundle lookup failures, shader miscompiles,
+    /// pipeline state errors, viewport math regressions).
+    ///
+    /// - Returns: `true` if the renderer is mid-LOD-transition and a follow-up
+    ///   frame should be scheduled. Production callers feed this back to
+    ///   `view.setNeedsDisplay`; tests can ignore the result.
+    @discardableResult
+    func drawScene(
+        commandBuffer cmdBuffer: MTLCommandBuffer,
+        descriptor: MTLRenderPassDescriptor,
+        drawableSize: CGSize
+    ) -> Bool {
+        guard let encoder = cmdBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
+            return false
         }
 
         var u = uniforms
@@ -430,7 +463,7 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
                     encoder: encoder,
                     buffer: prevSamples,
                     samples: prev.sampleCount,
-                    drawableSize: view.drawableSize,
+                    drawableSize: drawableSize,
                     uniforms: &u,
                     alphaMultiplier: fadeOut
                 )
@@ -450,18 +483,15 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
                 encoder: encoder,
                 buffer: samples,
                 samples: sampleCount,
-                drawableSize: view.drawableSize,
+                drawableSize: drawableSize,
                 uniforms: &u,
                 alphaMultiplier: progress
             )
         }
 
-        // If we're still mid-transition, keep ticking — the renderer is
-        // setNeedsDisplay-driven, so we have to ask for the next frame
-        // ourselves until progress hits 1.
-        if progress < 1 {
-            view.setNeedsDisplay(view.bounds)
-        } else if previousLOD != nil {
+        // LOD transition is finished — drop the snapshot of the previous LOD
+        // so subsequent frames don't keep paying for the crossfade.
+        if progress >= 1, previousLOD != nil {
             previousLOD = nil
             lodTransitionStart = nil
         }
@@ -473,8 +503,7 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         }
 
         encoder.endEncoding()
-        cmdBuffer.present(drawable)
-        cmdBuffer.commit()
+        return progress < 1
     }
 
     // MARK: - Pass helpers

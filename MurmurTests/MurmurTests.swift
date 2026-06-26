@@ -2329,6 +2329,171 @@ struct WaveformRendererInitTests {
     }
 }
 
+// MARK: - WaveformRenderer drawScene smoke test
+//
+// Phase 1 of the quality-infrastructure plan, adapted: instead of more
+// XCUI tests that read accessibility-tree state, this drives the actual
+// Metal draw path into an offscreen texture and verifies the renderer
+// can produce output. Catches the same class of bug as the missing-
+// waveform regression we shipped to TestFlight build 12 — code paths
+// run, no errors, screen is wrong.
+//
+// The drawScene helper this test calls was extracted from `draw(in:)`
+// specifically so it could be exercised without an MTKView.
+
+@Suite("Waveform renderer draws to offscreen texture")
+@MainActor
+struct WaveformRendererDrawSceneTests {
+
+    @Test("drawScene clears the target to paper-pink — catches dead encoder / draw path")
+    func clearsToPaperPink() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(WaveformRenderer(device: device))
+        let queue = try #require(device.makeCommandQueue())
+
+        // Offscreen BGRA8 target — same pixel layout an MTKView's drawable uses.
+        let textureDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: 64,
+            height: 64,
+            mipmapped: false
+        )
+        textureDesc.usage = [.renderTarget, .shaderRead]
+        textureDesc.storageMode = .managed
+        let texture = try #require(device.makeTexture(descriptor: textureDesc))
+
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = texture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].storeAction = .store
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(
+            red:   Double(renderer.style.paper.x),
+            green: Double(renderer.style.paper.y),
+            blue:  Double(renderer.style.paper.z),
+            alpha: 1.0
+        )
+
+        let cmdBuffer = try #require(queue.makeCommandBuffer())
+        renderer.drawScene(
+            commandBuffer: cmdBuffer,
+            descriptor: descriptor,
+            drawableSize: CGSize(width: 64, height: 64)
+        )
+
+        // .managed storage requires an explicit sync before CPU readback.
+        let blit = try #require(cmdBuffer.makeBlitCommandEncoder())
+        blit.synchronize(resource: texture)
+        blit.endEncoding()
+
+        cmdBuffer.commit()
+        cmdBuffer.waitUntilCompleted()
+
+        let pixel = readBGRA(from: texture, at: (32, 32))
+
+        // Paper-pink is (1.00, 0.93, 0.93) in linear sRGB → BGRA8 ≈ (237, 237, 255, 255).
+        #expect(pixel.r > 240, "Red channel should be ~255 for paper-pink, got \(pixel.r)")
+        #expect((220...250).contains(pixel.g), "Green channel should be ~237 for paper-pink, got \(pixel.g)")
+        #expect((220...250).contains(pixel.b), "Blue channel should be ~237 for paper-pink, got \(pixel.b)")
+        #expect(pixel.a == 255)
+    }
+
+    @Test("drawScene paints non-paper-pink pixels when a sample buffer is loaded — catches dead trace pipeline")
+    func drawsTraceWhenSamplesLoaded() throws {
+        let device = try #require(MTLCreateSystemDefaultDevice())
+        let renderer = try #require(WaveformRenderer(device: device))
+        let queue = try #require(device.makeCommandQueue())
+
+        // Stuff a small triangular wave into the sample buffer. Values span the
+        // full [-5, 5] mV range so the trace traverses most of the canvas height.
+        let samples: [Float] = (0..<32).map { i in Float(i % 16 - 8) * 0.6 }
+        let sampleBytes = samples.withUnsafeBytes { Data($0) }
+        renderer.sampleBuffer = try #require(device.makeBuffer(
+            bytes: Array(sampleBytes), length: sampleBytes.count, options: []
+        ))
+        renderer.sampleCount = samples.count
+        renderer.uniforms.startSample = 0
+        renderer.uniforms.endSample = Float(samples.count)
+        renderer.uniforms.yMin = -5
+        renderer.uniforms.yMax = 5
+        renderer.useEnvelope = false
+
+        let textureDesc = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm, width: 128, height: 64, mipmapped: false
+        )
+        textureDesc.usage = [.renderTarget, .shaderRead]
+        textureDesc.storageMode = .managed
+        let texture = try #require(device.makeTexture(descriptor: textureDesc))
+
+        let descriptor = MTLRenderPassDescriptor()
+        descriptor.colorAttachments[0].texture = texture
+        descriptor.colorAttachments[0].loadAction = .clear
+        descriptor.colorAttachments[0].storeAction = .store
+        descriptor.colorAttachments[0].clearColor = MTLClearColor(
+            red: Double(renderer.style.paper.x),
+            green: Double(renderer.style.paper.y),
+            blue: Double(renderer.style.paper.z),
+            alpha: 1.0
+        )
+
+        let cmdBuffer = try #require(queue.makeCommandBuffer())
+        renderer.drawScene(
+            commandBuffer: cmdBuffer,
+            descriptor: descriptor,
+            drawableSize: CGSize(width: 128, height: 64)
+        )
+        let blit = try #require(cmdBuffer.makeBlitCommandEncoder())
+        blit.synchronize(resource: texture)
+        blit.endEncoding()
+        cmdBuffer.commit()
+        cmdBuffer.waitUntilCompleted()
+
+        // Scan the whole texture for any pixel that isn't paper-pink. A dead
+        // trace pipeline (shader miscompile, pipeline state mismatch, etc.)
+        // would leave every pixel at the clear color.
+        var nonPaperPixels = 0
+        let totalPixels = texture.width * texture.height
+        for y in stride(from: 0, to: texture.height, by: 1) {
+            for x in stride(from: 0, to: texture.width, by: 1) {
+                let pixel = readBGRA(from: texture, at: (x, y))
+                // Paper-pink has G ~237, B ~237, R ~255. Trace black is near (0, 0, 0).
+                // Anything with green/blue below 200 is decidedly not paper.
+                if pixel.g < 200 || pixel.b < 200 {
+                    nonPaperPixels += 1
+                }
+            }
+        }
+        #expect(nonPaperPixels > 0, """
+            Every pixel in the offscreen target was paper-pink — the trace
+            pipeline didn't draw anything. The renderer is silently dead. Check
+            `WaveformShaders.metal` compiled successfully, `tracePipeline`
+            initialized, and the trace draw path's uniforms math is sane.
+            Total pixels: \(totalPixels), non-paper: \(nonPaperPixels).
+            """)
+    }
+
+    /// Read a single BGRA8 pixel out of an offscreen texture.
+    private func readBGRA(from texture: MTLTexture, at point: (Int, Int)) -> BGRAPixel {
+        var bytes = [UInt8](repeating: 0, count: 4)
+        texture.getBytes(
+            &bytes,
+            bytesPerRow: 4,
+            from: MTLRegion(
+                origin: MTLOrigin(x: point.0, y: point.1, z: 0),
+                size: MTLSize(width: 1, height: 1, depth: 1)
+            ),
+            mipmapLevel: 0
+        )
+        return BGRAPixel(b: bytes[0], g: bytes[1], r: bytes[2], a: bytes[3])
+    }
+
+    struct BGRAPixel {
+        let b: UInt8
+        let g: UInt8
+        let r: UInt8
+        let a: UInt8
+    }
+}
+
 // MARK: - Waveform time-axis label decimation
 //
 // Regression guards for the App Store Guideline 4 fix: tick labels on the
