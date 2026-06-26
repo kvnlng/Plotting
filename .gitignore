@@ -16,9 +16,11 @@ Products/
 
 # Swift Package Manager
 .build/
-Package.resolved
 .swiftpm/
 *.swiftpm/
+# Package.resolved is intentionally tracked — Xcode Cloud requires it
+# (automatic dependency resolution is disabled on hosted builds) and
+# committing it pins SPM versions across the team.
 
 # Pods / Carthage / other dep managers
 Pods/
