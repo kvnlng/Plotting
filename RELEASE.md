@@ -25,6 +25,15 @@ exercised on a real machine before paying users see it.
 
 ## Archive + TestFlight upload
 
+**Preferred (once Xcode Cloud is wired — see XCODE_CLOUD.md):**
+
+1. Bump version numbers
+2. `git tag v1.X && git push --tags`
+3. Xcode Cloud runs tests, archives, and ships the build to TestFlight
+   automatically. You get an email when it's ready (~10–15 min).
+
+**Manual fallback (current default until Xcode Cloud is set up):**
+
 1. **Destination**: top of the Xcode window, change destination to
    **Any Mac (Apple Silicon, Intel)**. Not "My Mac" — that builds a
    debug binary, not an archive-ready release.

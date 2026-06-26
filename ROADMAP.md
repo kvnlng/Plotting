@@ -293,13 +293,18 @@ would have caught the regressions in CI.
       the new minimum, lock toolbar gates editing
 
 **Phase 2 — Xcode Cloud workflow (1 session)**
-- [ ] App Store Connect → Xcode Cloud → workflow on the `main` branch
-- [ ] On push: run MurmurTests + MurmurUITests on macOS-latest
-- [ ] Matrix on multiple macOS versions (Sonoma 14, Sequoia 15,
-      Tahoe 26 if it exists) to catch API regressions across the
-      versions our App Store users actually run
-- [ ] Optional: on tag, archive + upload to TestFlight automatically
-- [ ] Failure notifications via email (Slack later if desired)
+- [x] Setup walkthrough captured in `XCODE_CLOUD.md` at the repo root.
+      Two workflows specced:
+      - `Test on main` — runs on every push, matrixed across the
+        macOS versions our deployment target supports
+      - `Archive on tag` — runs on `v*` tags, ships to TestFlight
+        Internal Testing automatically
+- [x] `RELEASE.md` updated to use `git tag` as the primary release
+      entry-point once Xcode Cloud is wired (manual archive/upload
+      retained as fallback)
+- [ ] User-action: walk through the App Store Connect → Xcode Cloud
+      setup using `XCODE_CLOUD.md`. ~15 min of UI work; nothing more
+      from the repo side is required.
 
 **Phase 3 — snapshot tests for SwiftUI overlays (lower priority)**
 - [ ] Add `swift-snapshot-testing` package
