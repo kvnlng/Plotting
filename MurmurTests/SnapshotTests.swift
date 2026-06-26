@@ -8,25 +8,23 @@
 //  overlays underneath (axes, tooltip, density timeline, summary header) are
 //  where layout regressions actually bite the analyst.
 //
-//  ▸ Currently dormant.
-//  Wrapped in `#if canImport(SnapshotTesting)` so it compiles to nothing
-//  until the SPM dependency lands. Today, pointfreeco/swift-snapshot-testing
-//  pins `swift-syntax` to <605, while the in-project SwiftLint plugin
-//  requires a 604/605 prerelease — the two won't co-resolve. Revisit once
-//  snapshot-testing tags a release that bumps the swift-syntax ceiling, or
-//  once we move SwiftLint to a Homebrew + Run-Script integration. Tracked
-//  in ROADMAP.md "Quality Infrastructure / Phase 3".
+//  ▸ Currently opt-in only.
+//  The test target runs inside a sandboxed host app (Murmur.app has
+//  ENABLE_APP_SANDBOX=YES), which blocks read/write access to the
+//  `__Snapshots__/` directory next to this file. Until that's settled
+//  (likely a Debug-only sandbox disable on the Murmur target, or a host-app
+//  refactor), every test in this suite is skipped by default.
 //
-//  Setup notes for when the dep is unblocked:
-//  - Attach `swift-snapshot-testing` to the MurmurTests target only.
-//  - Baselines live in __Snapshots__/SnapshotTests/ next to this file.
-//  - To re-record after intentional UI changes: pass `record: .all` to one
-//    of the `assertSnapshot` calls (or set the env var
-//    `SNAPSHOT_TESTING_RECORD=all` in the test scheme), run once, then
-//    revert and commit the new images.
-//  - Pin CI matrix to a single macOS version. SwiftUI metrics drift across
-//    OS releases — running these on both Tahoe and Sequoia will produce
-//    spurious diffs.
+//  To run locally: set env var `RUN_SNAPSHOT_TESTS=1` in the MurmurTests
+//  scheme. Combine with `SNAPSHOT_TESTING_RECORD=all` (or pass
+//  `record: .all` to `assertSnapshot`) for the first run to capture
+//  baselines under `__Snapshots__/SnapshotTests/`. Commit the baselines,
+//  unset record mode, then later runs assert against them.
+//
+//  Pin the suite to "Latest Release" only in Xcode Cloud — SwiftUI metrics
+//  drift across macOS versions, so matrix runs would be flaky.
+//
+//  Tracked in ROADMAP.md "Quality Infrastructure / Phase 3".
 //
 
 #if canImport(SnapshotTesting)
@@ -38,6 +36,23 @@ import SnapshotTesting
 
 @MainActor
 final class SnapshotTests: XCTestCase {
+
+    override func setUpWithError() throws {
+        try XCTSkipUnless(
+            ProcessInfo.processInfo.environment["RUN_SNAPSHOT_TESTS"] == "1",
+            "Snapshot tests are opt-in. Set RUN_SNAPSHOT_TESTS=1 on the MurmurTests scheme — see file header."
+        )
+    }
+
+    /// Wraps a SwiftUI View in a sized NSHostingView. swift-snapshot-testing
+    /// only ships an `.image` strategy for NSView on macOS — there's no
+    /// direct SwiftUI-View snapshotter like the iOS UIKit path.
+    private func host<V: View>(_ view: V, size: CGSize) -> NSView {
+        let host = NSHostingView(rootView: view)
+        host.frame = CGRect(origin: .zero, size: size)
+        host.layoutSubtreeIfNeeded()
+        return host
+    }
 
     // MARK: - AnnotationTooltip
 
@@ -51,10 +66,11 @@ final class SnapshotTests: XCTestCase {
             source: "demo-detector-v2",
             note: "Couplet, R-on-T morphology"
         )
+        let size = CGSize(width: 280, height: 160)
         let view = AnnotationTooltip(annotation: annotation, sampleRate: 250)
             .frame(width: 240)
             .padding()
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: size), as: .image)
     }
 
     func testAnnotationTooltip_rangeWithoutNote() {
@@ -66,38 +82,42 @@ final class SnapshotTests: XCTestCase {
             severity: .critical,
             source: "vt-detector-v1"
         )
+        let size = CGSize(width: 280, height: 110)
         let view = AnnotationTooltip(annotation: annotation, sampleRate: 250)
             .frame(width: 240)
             .padding()
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: size), as: .image)
     }
 
     // MARK: - WaveformTimeAxis
 
     func testTimeAxis_defaultTenSecondViewport() {
+        let size = CGSize(width: 676, height: 32)
         let view = WaveformTimeAxis(startTime: 0, endTime: 10)
             .frame(width: 660, height: 16)
             .padding(.horizontal, 8)
             .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: size), as: .image)
     }
 
     func testTimeAxis_zoomedSixtySecondViewport() {
+        let size = CGSize(width: 676, height: 32)
         let view = WaveformTimeAxis(startTime: 120, endTime: 180)
             .frame(width: 660, height: 16)
             .padding(.horizontal, 8)
             .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: size), as: .image)
     }
 
     // MARK: - WaveformVoltageAxis
 
     func testVoltageAxis_defaultRange() {
+        let size = CGSize(width: 56, height: 188)
         let view = WaveformVoltageAxis(yMin: -1.5, yMax: 1.5, durationSeconds: 10)
             .frame(width: 56, height: 180)
             .padding(.vertical, 4)
             .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: size), as: .image)
     }
 
     // MARK: - FindingDensityTimeline
@@ -129,7 +149,7 @@ final class SnapshotTests: XCTestCase {
         .frame(width: 520)
         .padding()
         .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: CGSize(width: 552, height: 160)), as: .image)
     }
 
     // MARK: - FindingsSummaryHeader
@@ -156,7 +176,7 @@ final class SnapshotTests: XCTestCase {
         )
         .frame(width: 720)
         .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: CGSize(width: 720, height: 60)), as: .image)
     }
 
     func testFindingsSummaryHeader_emptyState() {
@@ -167,7 +187,7 @@ final class SnapshotTests: XCTestCase {
         )
         .frame(width: 360)
         .background(Color.white)
-        assertSnapshot(of: view, as: .image(layout: .sizeThatFits))
+        assertSnapshot(of: host(view, size: CGSize(width: 360, height: 60)), as: .image)
     }
 }
 
