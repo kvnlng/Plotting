@@ -33,13 +33,13 @@ struct MurmurApp: App {
             // non-existent Help Book) with links into the public docs site
             // and a mailto for direct support.
             CommandGroup(replacing: .help) {
-                Button("Murmur Studio Help") { NSWorkspace.shared.open(HelpURL.home) }
+                Button("Murmur Studio Help") { URLLauncher.shared.open(HelpURL.home) }
                     .keyboardShortcut("?", modifiers: .command)
-                Button("Getting Started")     { NSWorkspace.shared.open(HelpURL.gettingStarted) }
-                Button("Annotation Schema")   { NSWorkspace.shared.open(HelpURL.annotationSchema) }
+                Button("Getting Started")     { URLLauncher.shared.open(HelpURL.gettingStarted) }
+                Button("Annotation Schema")   { URLLauncher.shared.open(HelpURL.annotationSchema) }
                 Divider()
-                Button("Privacy Policy")      { NSWorkspace.shared.open(HelpURL.privacy) }
-                Button("Contact Support…")    { NSWorkspace.shared.open(HelpURL.support) }
+                Button("Privacy Policy")      { URLLauncher.shared.open(HelpURL.privacy) }
+                Button("Contact Support…")    { URLLauncher.shared.open(HelpURL.support) }
             }
         }
     }

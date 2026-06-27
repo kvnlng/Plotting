@@ -151,7 +151,11 @@ struct BedsideView: View {
             Color.clear
                 .frame(width: 1, height: 1)
                 .accessibilityIdentifier("ui-test-viewport-state")
-                .accessibilityLabel("\(viewport.startSample)-\(viewport.endSample)")
+                // Format avoids `dddd-dddd` patterns that the macOS
+                // accessibility post-processor reformats with thousands
+                // separators (e.g. `1750` → `1,750`). Letter separators
+                // keep tests' equality comparisons stable.
+                .accessibilityLabel("start=\(viewport.startSample) end=\(viewport.endSample)")
                 .allowsHitTesting(false)
         }
         .inspector(isPresented: $showFindings) {
@@ -217,7 +221,37 @@ struct BedsideView: View {
         } message: {
             Text(attachError ?? "")
         }
+        #if DEBUG
+        .task { applyUITestHooks() }
+        #endif
     }
+
+    #if DEBUG
+    /// Applies launch-arg-driven viewport mutations once the view appears.
+    /// Mirrors the gestures' code paths so the wiring from launch arg →
+    /// viewport state matches the wiring from gesture → viewport state.
+    /// Runs after a tick so the viewport has its initial range in place.
+    private func applyUITestHooks() {
+        Task { @MainActor in
+            // 1 ms is long enough for the viewport's initial range to settle
+            // but short enough that the test's waitForExistence still catches
+            // the post-hook state.
+            try? await Task.sleep(nanoseconds: 1_000_000)
+            if let delta = UITestSupport.panBySamples {
+                viewport.setStart(viewport.startSample + delta)
+            }
+            if let seconds = UITestSupport.zoomToSeconds,
+               let firstECG = ecgChannels.first {
+                let width = Int64(seconds * firstECG.sampleRate)
+                viewport.setWidth(width, anchorFraction: 0.5)
+            }
+            if let url = UITestSupport.attachFindingsURL {
+                handleAttachFindings(.success(url))
+                UITestSupport.attachFindingsURL = nil
+            }
+        }
+    }
+    #endif
 
     /// Reads the analyst-picked JSON, parses it through `AnnotationLoader`
     /// (which validates schema version and resolves both sample-index and

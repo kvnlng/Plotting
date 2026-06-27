@@ -40,6 +40,36 @@
 //        resolve → import → bedside path runs end-to-end. Wipes the
 //        existing recents list first so each run starts deterministic.
 //
+//    --ui-test-open-folder
+//        Materialises a synthetic WFDB folder and calls `openFolder(_:)`
+//        directly — bypasses the system `NSOpenPanel`. Covers the
+//        welcome Open button, toolbar Open button, and drop-delegate
+//        paths (all three terminate in `openFolder`).
+//
+//    --ui-test-attach-findings
+//        Writes a synthetic attach sidecar with a distinctive
+//        `category: "ATTACH"` finding, then routes it through
+//        `BedsideView.handleAttachFindings` on appear — bypasses the
+//        `attach-findings` file picker.
+//
+//    --ui-test-pan-by=<dx>
+//        On bedside appear, calls `viewport.setStart(startSample + dx)`
+//        — the same mutation `DragGesture.onChanged` calls. XCUI can't
+//        synthesise `NSEvent.mouseDragged`, so this is the bypass.
+//
+//    --ui-test-zoom-to=<seconds>
+//        On bedside appear, calls `viewport.setWidth(seconds * sampleRate,
+//        anchorFraction: 0.5)` — the same mutation
+//        `MagnifyGesture.onChanged` calls. XCUI has no multi-touch
+//        synthesis, so this is the bypass.
+//
+//    --ui-test-record-urls
+//        Switches `URLLauncher.open` from "call `NSWorkspace.open`" to
+//        "record the URL on `lastLaunchedURL`". A hidden accessibility
+//        element echoes the URL onto label `ui-test-last-launched-url`,
+//        letting XCUI assert the URL each Help menu item / link targets
+//        without launching a browser.
+//
 
 #if DEBUG
 import Foundation
@@ -76,6 +106,72 @@ enum UITestSupport {
         let parts = raw.split(separator: ",").compactMap { Double($0) }
         guard parts.count == 2 else { return nil }
         return CGPoint(x: parts[0], y: parts[1])
+    }
+
+    /// If `--ui-test-pan-by=N` is set, returns N samples. BedsideView
+    /// applies this on first appear by calling `viewport.setStart(start + N)` —
+    /// the same mutation the drag-pan gesture's `onChanged` runs. Lets us
+    /// validate the pan → viewport-state path without synthesising a
+    /// `DragGesture` event stream that XCUI on macOS can't produce.
+    static var panBySamples: Int64? {
+        guard let raw = value(forFlag: "ui-test-pan-by"),
+              let n = Int64(raw) else { return nil }
+        return n
+    }
+
+    /// If `--ui-test-zoom-to=N` is set, returns N seconds. BedsideView
+    /// applies this on first appear by calling `viewport.setWidth(seconds *
+    /// sampleRate, anchorFraction: 0.5)` — the same mutation the pinch-zoom
+    /// gesture runs. Lets us validate the zoom → viewport-width path
+    /// without synthesising a `MagnifyGesture` event stream that XCUI on
+    /// macOS can't produce.
+    static var zoomToSeconds: Double? {
+        guard let raw = value(forFlag: "ui-test-zoom-to"),
+              let n = Double(raw), n > 0 else { return nil }
+        return n
+    }
+
+    /// Filled by `ContentView` when `--ui-test-attach-findings` is set.
+    /// `BedsideView` checks this on appear and, if non-nil, routes the URL
+    /// through its `handleAttachFindings` path — the same one the toolbar
+    /// "Attach findings…" button reaches. Bypasses the system fileImporter
+    /// modal.
+    static var attachFindingsURL: URL?
+
+    /// Materialises a synthetic attach-sidecar JSON in a temp file. The
+    /// JSON carries one distinctive finding (`category: "ATTACH"`) so the
+    /// test can wait for `finding-row-ATTACH` to appear in the panel.
+    static func makeAttachFindingsFixture() -> URL? {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("murmur-ui-test-attach", isDirectory: true)
+            .appendingPathComponent("\(UUID().uuidString).json")
+        do {
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let json = """
+            {
+              "schemaVersion": 1,
+              "source": "ui-test-attach",
+              "findings": [
+                {
+                  "kind": "point",
+                  "startSample": 2200,
+                  "category": "ATTACH",
+                  "label": "ATTACH",
+                  "confidence": 0.5,
+                  "severity": "info",
+                  "note": "Synthetic finding injected via --ui-test-attach-findings"
+                }
+              ]
+            }
+            """
+            try json.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
 }
 #endif

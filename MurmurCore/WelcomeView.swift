@@ -221,10 +221,13 @@ struct WelcomeView: View {
         HStack(spacing: 4) {
             Text("Need data?")
                 .foregroundStyle(.secondary)
-            Link(
-                "Browse PhysioNet's MIT-BIH Arrhythmia Database",
-                destination: URL(string: "https://www.physionet.org/content/mitdb/1.0.0/")!
-            )
+            // Routed through URLLauncher (not SwiftUI's `Link`) so UI tests
+            // can intercept the open call via --ui-test-record-urls without
+            // launching a browser and losing focus.
+            Button("Browse PhysioNet's MIT-BIH Arrhythmia Database") {
+                URLLauncher.shared.open(URL(string: "https://www.physionet.org/content/mitdb/1.0.0/")!)
+            }
+            .buttonStyle(.link)
             .accessibilityIdentifier("welcome-physionet-link")
         }
         .font(.footnote)

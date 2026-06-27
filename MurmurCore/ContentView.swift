@@ -39,6 +39,11 @@ public struct ContentView: View {
                 directShell(directory: directory, recording: recording)
             }
         }
+        .overlay(alignment: .topLeading) {
+            #if DEBUG
+            urlLauncherProbe
+            #endif
+        }
         .fileImporter(
             isPresented: $isImporterPresented,
             allowedContentTypes: [.folder]
@@ -296,15 +301,65 @@ public struct ContentView: View {
     }
 
     #if DEBUG
+    /// Hidden 1pt overlay that echoes `URLLauncher.shared.lastLaunchedURL`
+    /// onto an accessibility element. Lets XCUI assert "the Privacy Policy
+    /// command targets the right URL" without launching a browser. The view
+    /// is always mounted in DEBUG so reading the property establishes
+    /// observation regardless of which launch args are set; the launcher
+    /// itself no-ops on actual `open` calls when `--ui-test-record-urls` is
+    /// present.
+    private var urlLauncherProbe: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .accessibilityIdentifier("ui-test-last-launched-url")
+            .accessibilityLabel(URLLauncher.shared.lastLaunchedURL?.absoluteString ?? "")
+            .accessibilityHidden(false)
+    }
+
     private func loadUITestSampleIfRequested() {
         let args = ProcessInfo.processInfo.arguments
         if args.contains("--ui-test-sample") {
             loadSampleFixture()
+            attachFindingsIfRequested()
             return
         }
         if args.contains("--ui-test-seed-recent") {
             seedRecentForTesting()
+            return
         }
+        if args.contains("--ui-test-open-folder") {
+            openSyntheticFolderForTesting()
+        }
+    }
+
+    /// Materialises a synthetic WFDB source folder and calls the same
+    /// `openFolder(_:)` path the picker, the toolbar button, and the
+    /// drag-and-drop delegate all go through. Bypasses the system
+    /// `NSOpenPanel` modal (XCUI-hostile) while still exercising the full
+    /// scanFolder → import → bedside pipeline.
+    private func openSyntheticFolderForTesting() {
+        let workDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("murmur-ui-test-open", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        guard (try? FileManager.default.createDirectory(
+            at: workDir,
+            withIntermediateDirectories: true
+        )) != nil,
+              (try? SyntheticRecording.makeMultiFrequencyRecord(into: workDir)) != nil else {
+            return
+        }
+        openFolder(workDir)
+    }
+
+    /// When `--ui-test-attach-findings` is set, writes a synthetic
+    /// attach-sidecar JSON to a temp file. BedsideView picks the path up
+    /// from `UITestSupport.attachFindingsURL` and routes it through its
+    /// existing `handleAttachFindings` path on appear. Done up here so the
+    /// fixture is on disk before BedsideView's `.task` fires.
+    private func attachFindingsIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains("--ui-test-attach-findings"),
+              let url = UITestSupport.makeAttachFindingsFixture() else { return }
+        UITestSupport.attachFindingsURL = url
     }
 
     /// Materialises the synthetic fixture's source WFDB folder on disk and
