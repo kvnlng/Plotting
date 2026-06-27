@@ -391,6 +391,169 @@ final class MurmurUITests: XCTestCase {
                       "VT row should remain visible after the VT-only filter")
     }
 
+    // MARK: - Tier 6: disposition round-trip (lock-gated)
+
+    @MainActor
+    func testEditModeLatchTogglesDispositionTrio() throws {
+        // Guards: edit-mode-toggle wiring + the lock-gated render of the
+        // disposition trio. Default state is read-only — the
+        // confirm/dismiss buttons should not appear in the tree. Flip
+        // edit-mode on; they should appear.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let vfRow = app.buttons.matching(identifier: "finding-row-VF").firstMatch
+        XCTAssertTrue(vfRow.waitForExistence(timeout: 5))
+
+        // Locate a confirm button by partial identifier — the suffix is
+        // an annotation UUID we don't know up-front.
+        let confirmPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-confirm-'")
+        XCTAssertEqual(app.descendants(matching: .any).matching(confirmPredicate).count, 0,
+                       "Disposition trio should not render when edit-mode is off")
+
+        let editToggle = app.descendants(matching: .any)
+            .matching(identifier: "edit-mode-toggle").firstMatch
+        XCTAssertTrue(editToggle.waitForExistence(timeout: 3))
+        editToggle.click()
+
+        // After enabling edit-mode, every finding gets a confirm button.
+        // Three findings in the fixture (2 VT + 1 VF) → 3 confirm buttons.
+        let confirmsAfter = app.descendants(matching: .any).matching(confirmPredicate)
+        let appeared = NSPredicate(format: "count > 0")
+        let exp = XCTNSPredicateExpectation(predicate: appeared, object: confirmsAfter)
+        XCTAssertEqual(XCTWaiter.wait(for: [exp], timeout: 3), .completed,
+                       "Disposition confirm buttons should appear after edit-mode is enabled")
+    }
+
+    @MainActor
+    func testDismissingFindingExposesResetButton() throws {
+        // Guards: dispositionStore.dismiss path + the reset button's
+        // disposition-conditional render. Pre-condition: edit-mode on,
+        // no dispositions yet → no reset button. Click dismiss → reset
+        // button for that finding appears.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let editToggle = app.descendants(matching: .any)
+            .matching(identifier: "edit-mode-toggle").firstMatch
+        XCTAssertTrue(editToggle.waitForExistence(timeout: 5))
+        editToggle.click()
+
+        // Wait for a dismiss button to materialise after edit-mode flips on.
+        let dismissPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-dismiss-'")
+        let dismissButtons = app.descendants(matching: .any).matching(dismissPredicate)
+        let dismissAppeared = NSPredicate(format: "count > 0")
+        let dismissExp = XCTNSPredicateExpectation(predicate: dismissAppeared, object: dismissButtons)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissExp], timeout: 3), .completed,
+                       "Dismiss buttons should appear after edit-mode flips on")
+
+        // No reset buttons yet — nothing has been dispositioned.
+        let resetPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-reset-'")
+        XCTAssertEqual(app.descendants(matching: .any).matching(resetPredicate).count, 0,
+                       "Reset button should not exist before any finding is dispositioned")
+
+        dismissButtons.element(boundBy: 0).click()
+
+        // After dismissing one finding, exactly one reset button should appear.
+        let resetButtons = app.descendants(matching: .any).matching(resetPredicate)
+        let resetAppeared = NSPredicate(format: "count > 0")
+        let resetExp = XCTNSPredicateExpectation(predicate: resetAppeared, object: resetButtons)
+        XCTAssertEqual(XCTWaiter.wait(for: [resetExp], timeout: 3), .completed,
+                       "Reset button should appear after a finding is dismissed")
+    }
+
+    @MainActor
+    func testResetReturnsFindingToUnreviewed() throws {
+        // Guards: dispositionStore.reset path + the reset button's
+        // conditional render disappearing again. Sets up state by
+        // dismissing first, then resets.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let editToggle = app.descendants(matching: .any)
+            .matching(identifier: "edit-mode-toggle").firstMatch
+        XCTAssertTrue(editToggle.waitForExistence(timeout: 5))
+        editToggle.click()
+
+        let dismissPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-dismiss-'")
+        let dismissButtons = app.descendants(matching: .any).matching(dismissPredicate)
+        let dismissAppeared = NSPredicate(format: "count > 0")
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: dismissAppeared, object: dismissButtons)],
+                timeout: 3
+            ),
+            .completed
+        )
+        dismissButtons.element(boundBy: 0).click()
+
+        let resetPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-reset-'")
+        let resetButtons = app.descendants(matching: .any).matching(resetPredicate)
+        let resetAppeared = NSPredicate(format: "count > 0")
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: resetAppeared, object: resetButtons)],
+                timeout: 3
+            ),
+            .completed,
+            "Setup precondition: dismiss should have produced a reset button"
+        )
+
+        resetButtons.element(boundBy: 0).click()
+
+        let resetDisappeared = NSPredicate(format: "count == 0")
+        let resetGoneExp = XCTNSPredicateExpectation(predicate: resetDisappeared, object: resetButtons)
+        XCTAssertEqual(XCTWaiter.wait(for: [resetGoneExp], timeout: 3), .completed,
+                       "Reset button should disappear once the finding is back to unreviewed")
+    }
+
+    @MainActor
+    func testConfirmFindingViaMenuExposesResetButton() throws {
+        // Guards: dispositionStore.confirm path + the Menu wrapping of the
+        // confirm action (Confirm as VT / Confirm as VF / Confirm (unsure)).
+        // SwiftUI Menu on macOS opens a popup; selecting an item fires
+        // the underlying onConfirm closure.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let editToggle = app.descendants(matching: .any)
+            .matching(identifier: "edit-mode-toggle").firstMatch
+        XCTAssertTrue(editToggle.waitForExistence(timeout: 5))
+        editToggle.click()
+
+        let confirmPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-confirm-'")
+        let confirmButtons = app.descendants(matching: .any).matching(confirmPredicate)
+        let confirmAppeared = NSPredicate(format: "count > 0")
+        XCTAssertEqual(
+            XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: confirmAppeared, object: confirmButtons)],
+                timeout: 3
+            ),
+            .completed
+        )
+
+        // Open the Menu on the first finding's confirm control.
+        confirmButtons.element(boundBy: 0).click()
+
+        // Pick the "Confirm (unsure)" option — keeps the test resilient
+        // to the menu's exact ordering of VT/VF items.
+        let menuItem = app.menuItems["Confirm (unsure)"]
+        XCTAssertTrue(menuItem.waitForExistence(timeout: 3),
+                      "Confirm menu should open and expose its items")
+        menuItem.click()
+
+        let resetPredicate = NSPredicate(format: "identifier BEGINSWITH 'disposition-reset-'")
+        let resetButtons = app.descendants(matching: .any).matching(resetPredicate)
+        let resetAppeared = NSPredicate(format: "count > 0")
+        let resetExp = XCTNSPredicateExpectation(predicate: resetAppeared, object: resetButtons)
+        XCTAssertEqual(XCTWaiter.wait(for: [resetExp], timeout: 3), .completed,
+                       "Reset button should appear after a finding is confirmed via the Menu")
+    }
+
     @MainActor
     func testFindingsPanelTogglesViaToolbar() throws {
         // Guards: toolbar button wiring, inspector show/hide, panel

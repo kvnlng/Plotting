@@ -19,8 +19,8 @@ covering the highest-risk flows before each public submission.
 - 🟡 Manual gate via the `RELEASE.md` smoke pass
 - ⬜ Uncovered — no automated test, not in smoke pass
 
-**Current score:** 14 ✅ automated · 14 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
-That's **48% automated**, **97% covered by some gate** (automated + smoke).
+**Current score:** 18 ✅ automated · 10 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
+That's **62% automated**, **97% covered by some gate** (automated + smoke).
 
 The North Star: convert 🟡 → ✅ over time, especially for flows where the
 bug class would silently degrade the analyst experience without crashing.
@@ -66,7 +66,7 @@ automated, or one moves between buckets.
 | --- | --- | --- |
 | Toolbar **Open** button → fileImporter opens | 🟡 RELEASE.md smoke | See "Open Record Folder" — same modal-sheet limit |
 | Toolbar **Findings** toggle → side panel shows/hides | ✅ `MurmurUITests/testFindingsPanelTogglesViaToolbar` | Toggles `findings-toggle`, verifies `finding-row-*` appears/disappears |
-| Toolbar **Edit mode** latch → unlocks editing surfaces | 🟡 RELEASE.md smoke | Identifier `edit-mode-toggle`. The lock-gated actions below all depend on this latch |
+| Toolbar **Edit mode** latch → unlocks editing surfaces | ✅ `MurmurUITests/testEditModeLatchTogglesDispositionTrio` | Asserts the disposition trio appears/disappears in lock-step with the latch |
 | Toolbar **Attach findings…** → file picker for sidecar JSON | 🟡 RELEASE.md smoke | Identifier `attach-findings`. Modal-sheet limit again |
 
 ## Findings ops (lock-gated)
@@ -74,9 +74,9 @@ automated, or one moves between buckets.
 | Interaction | Test | Notes |
 | --- | --- | --- |
 | Filter by category via summary chip | ✅ `MurmurUITests/testClickingSummaryChipFiltersFindings` | Filter math also covered by `FindingFilterTests` |
-| Confirm a finding (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-confirm-*` exists. Disposition state covered by `DispositionStoreTests` |
-| Dismiss a finding (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-dismiss-*` exists |
-| Reset a finding to unreviewed (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-reset-*` exists |
+| Confirm a finding (with edit-mode latch) | ✅ `MurmurUITests/testConfirmFindingViaMenuExposesResetButton` | Disposition state also covered by `DispositionStoreTests` |
+| Dismiss a finding (with edit-mode latch) | ✅ `MurmurUITests/testDismissingFindingExposesResetButton` | |
+| Reset a finding to unreviewed (with edit-mode latch) | ✅ `MurmurUITests/testResetReturnsFindingToUnreviewed` | |
 | Edit a finding's note in context panel | 🟡 RELEASE.md smoke | Identifier `context-notes-editor` exists |
 
 ## Strips (low-rate trends)
@@ -102,12 +102,12 @@ automated, or one moves between buckets.
 
 ## Gaps to close (priority order)
 
-1. **Lock-gated confirm/dismiss/reset round-trip.** Toggle edit-mode
-   latch, hit confirm, assert disposition state shows in the row.
-   Replaces three smoke steps with one XCUI test.
-2. **Note editor round-trip.** Confirm with note, assert note text
-   round-trips into the context panel's text editor.
-3. **Recent-folder row click.** Seed a recents entry via launch-arg,
+1. **Note editor round-trip.** Requires a synthetic-fixture change —
+   `RecordContextPanel` only renders when the recording has header
+   comments or a notes file, and the fixture has neither. Add either
+   to the synthetic record, then type into `context-notes-editor`,
+   assert the text persists across editor close/reopen.
+2. **Recent-folder row click.** Seed a recents entry via launch-arg,
    click the row, assert the recording loads.
 
 ## Counted intentionally NOT in this list
