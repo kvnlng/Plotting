@@ -278,10 +278,9 @@ final class MurmurUITests: XCTestCase {
 
     @MainActor
     func testClickingStateBackdropStripJumpsViewport() throws {
-        // Guards: StateBackdropStrip's tap-to-jump path. The strip's tap
-        // target is the inner cell body — the identifier sits on the whole
-        // strip (header + row), so we click toward the bottom-right of the
-        // element to land on the cells instead of the header text.
+        // Guards: StateBackdropStrip's tap-to-jump path. Click the inner
+        // cell-body lane (state-backdrop-lane) directly — same shape as
+        // the other lane-click tests.
         let app = XCUIApplication()
         app.launchArguments += [
             "--ui-test-sample",
@@ -294,18 +293,15 @@ final class MurmurUITests: XCTestCase {
         XCTAssertTrue(viewportState.waitForExistence(timeout: 5))
         let initial = viewportState.label
 
-        let strip = app.descendants(matching: .any)
-            .matching(identifier: "state-backdrop-strip").firstMatch
-        XCTAssertTrue(strip.waitForExistence(timeout: 3))
-        // Aim for the bottom-right quadrant — the cell body sits below the
-        // header and to the right of the "ventilation" label.
-        let target = strip.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.8))
-        target.click()
+        let lane = app.descendants(matching: .any)
+            .matching(identifier: "state-backdrop-lane").firstMatch
+        XCTAssertTrue(lane.waitForExistence(timeout: 3))
+        lane.click()
 
         let predicate = NSPredicate(format: "label != %@", initial)
         let exp = XCTNSPredicateExpectation(predicate: predicate, object: viewportState)
         XCTAssertEqual(XCTWaiter.wait(for: [exp], timeout: 3), .completed,
-                       "Viewport state should change after a state-backdrop click (was '\(initial)')")
+                       "Viewport state should change after a state-backdrop-lane click (was '\(initial)')")
     }
 
     // MARK: - Tier 5: layout & filter regression guards
@@ -580,6 +576,41 @@ final class MurmurUITests: XCTestCase {
         let resetExp = XCTNSPredicateExpectation(predicate: resetAppeared, object: resetButtons)
         XCTAssertEqual(XCTWaiter.wait(for: [resetExp], timeout: 3), .completed,
                        "Reset button should appear after a finding is confirmed via the Menu")
+    }
+
+    @MainActor
+    func testContextNotesEditorAppearsInEditMode() throws {
+        // Guards: RecordContextPanel's render path + the edit-mode latch
+        // gate on the notes editor. The synthetic fixture's importer
+        // reserves a "notes.md" filename so the panel always renders;
+        // the TextEditor itself is only mounted when isEditing is true.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        // Wait for the bedside to appear so we know the panel had time to
+        // mount.
+        let bedside = app.descendants(matching: .any)
+            .matching(identifier: "bedside-view").firstMatch
+        XCTAssertTrue(bedside.waitForExistence(timeout: 5))
+
+        let editor = app.descendants(matching: .any)
+            .matching(identifier: "context-notes-editor").firstMatch
+        XCTAssertFalse(editor.exists,
+                       "Notes editor should not render when edit-mode is off")
+
+        let editToggle = app.descendants(matching: .any)
+            .matching(identifier: "edit-mode-toggle").firstMatch
+        XCTAssertTrue(editToggle.waitForExistence(timeout: 3))
+        editToggle.click()
+
+        XCTAssertTrue(editor.waitForExistence(timeout: 3),
+                      "Notes editor should appear after edit-mode is enabled")
+
+        // Flip back to read-only; editor disappears.
+        editToggle.click()
+        XCTAssertTrue(waitForElementToDisappear(editor, timeout: 3),
+                      "Notes editor should disappear after edit-mode is locked")
     }
 
     @MainActor

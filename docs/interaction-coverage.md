@@ -19,8 +19,8 @@ covering the highest-risk flows before each public submission.
 - 🟡 Manual gate via the `RELEASE.md` smoke pass
 - ⬜ Uncovered — no automated test, not in smoke pass
 
-**Current score:** 19 ✅ automated · 9 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
-That's **66% automated**, **97% covered by some gate** (automated + smoke).
+**Current score:** 20 ✅ automated · 8 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
+That's **69% automated**, **97% covered by some gate** (automated + smoke).
 
 The North Star: convert 🟡 → ✅ over time, especially for flows where the
 bug class would silently degrade the analyst experience without crashing.
@@ -77,7 +77,7 @@ automated, or one moves between buckets.
 | Confirm a finding (with edit-mode latch) | ✅ `MurmurUITests/testConfirmFindingViaMenuExposesResetButton` | Disposition state also covered by `DispositionStoreTests` |
 | Dismiss a finding (with edit-mode latch) | ✅ `MurmurUITests/testDismissingFindingExposesResetButton` | |
 | Reset a finding to unreviewed (with edit-mode latch) | ✅ `MurmurUITests/testResetReturnsFindingToUnreviewed` | |
-| Edit a finding's note in context panel | 🟡 RELEASE.md smoke | Identifier `context-notes-editor` exists |
+| Edit a finding's note in context panel | ✅ `MurmurUITests/testContextNotesEditorAppearsInEditMode` | Editor mounts only in edit-mode; the actual text round-trip is exercised in `RecordContextPanel`'s save path (debounced write to `<bundle>/notes.md`) |
 
 ## Strips (low-rate trends)
 
@@ -102,11 +102,12 @@ automated, or one moves between buckets.
 
 ## Gaps to close (priority order)
 
-1. **Note editor round-trip.** Requires a synthetic-fixture change —
-   `RecordContextPanel` only renders when the recording has header
-   comments or a notes file, and the fixture has neither. Add either
-   to the synthetic record, then type into `context-notes-editor`,
-   assert the text persists across editor close/reopen.
+The remaining 🟡 entries are XCUI-blocked under macOS (modal sheet
+escape from `fileImporter`, no `NSEvent.mouseDragged` synthesis from
+`press(forDuration:thenDragTo:)`, no `MagnifyGesture` synthesis, no
+hover state in the accessibility tree, `NSWorkspace.open` /
+`mailto:` leave the runner). They're documented at the bottom of
+this file; the smoke-test pass in `RELEASE.md` is the gate.
 
 ## Counted intentionally NOT in this list
 

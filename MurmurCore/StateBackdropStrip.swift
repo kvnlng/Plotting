@@ -45,6 +45,7 @@ struct StateBackdropStrip: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("state-backdrop-strip")
             .task(id: channelIDs) {
                 await loadSamples()
@@ -109,6 +110,8 @@ struct StateBackdropStrip: View {
             }
         }
         .frame(height: Self.stripHeight)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("state-backdrop-lane")
     }
 
     // MARK: - Cell derivation
