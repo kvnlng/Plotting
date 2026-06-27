@@ -74,6 +74,7 @@
 		0A9B42EB2FDF06BB0059C903 /* MurmurUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MurmurUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AC4C95D2FEF04B900A3D0A5 /* MurmurCore.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = MurmurCore.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		0AC4C9672FEF04B900A3D0A5 /* MurmurCoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MurmurCoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		0AFFF3F02FF00BFD000AAE89 /* Murmur.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = Murmur.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -165,6 +166,7 @@
 		0A9B42C62FDF06BA0059C903 = {
 			isa = PBXGroup;
 			children = (
+				0AFFF3F02FF00BFD000AAE89 /* Murmur.xctestplan */,
 				0A9B42D12FDF06BA0059C903 /* Murmur */,
 				0A9B42E42FDF06BB0059C903 /* MurmurTests */,
 				0A9B42EE2FDF06BB0059C903 /* MurmurUITests */,

@@ -1,0 +1,46 @@
+{
+  "configurations" : [
+    {
+      "id" : "E9D54F4B-1860-411E-885E-840472EE4E80",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:Murmur.xcodeproj",
+      "identifier" : "0A9B42CE2FDF06BA0059C903",
+      "name" : "Murmur"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Murmur.xcodeproj",
+        "identifier" : "0A9B42E02FDF06BB0059C903",
+        "name" : "MurmurTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Murmur.xcodeproj",
+        "identifier" : "0A9B42EA2FDF06BB0059C903",
+        "name" : "MurmurUITests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:Murmur.xcodeproj",
+        "identifier" : "0AC4C9662FEF04B900A3D0A5",
+        "name" : "MurmurCoreTests"
+      }
+    }
+  ],
+  "version" : 1
+}
