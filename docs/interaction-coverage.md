@@ -19,8 +19,8 @@ covering the highest-risk flows before each public submission.
 - 🟡 Manual gate via the `RELEASE.md` smoke pass
 - ⬜ Uncovered — no automated test, not in smoke pass
 
-**Current score:** 11 ✅ automated · 17 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
-That's **38% automated**, **97% covered by some gate** (automated + smoke).
+**Current score:** 14 ✅ automated · 14 🟡 manual-only · 1 ⬜ uncovered out of 29 total.
+That's **48% automated**, **97% covered by some gate** (automated + smoke).
 
 The North Star: convert 🟡 → ✅ over time, especially for flows where the
 bug class would silently degrade the analyst experience without crashing.
@@ -57,8 +57,8 @@ automated, or one moves between buckets.
 
 | Interaction | Test | Notes |
 | --- | --- | --- |
-| Click lead chip → focus mode shifts to that lead | 🟡 RELEASE.md smoke | Identifier `lead-chip-*` exists |
-| Toggle Focus / Strips layout mode | 🟡 RELEASE.md smoke | Identifier `layout-mode-*` exists |
+| Click lead chip → focus mode shifts to that lead | ✅ `MurmurUITests/testClickingLeadChipShiftsFocus` | |
+| Toggle Focus / Strips layout mode | ✅ `MurmurUITests/testLayoutModeToggleShowsAllChannels` | |
 
 ## Toolbar
 
@@ -73,7 +73,7 @@ automated, or one moves between buckets.
 
 | Interaction | Test | Notes |
 | --- | --- | --- |
-| Filter by category via summary chip | 🟡 RELEASE.md smoke | Identifier `summary-chip-*` exists. Filter math covered by `FindingFilterTests` |
+| Filter by category via summary chip | ✅ `MurmurUITests/testClickingSummaryChipFiltersFindings` | Filter math also covered by `FindingFilterTests` |
 | Confirm a finding (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-confirm-*` exists. Disposition state covered by `DispositionStoreTests` |
 | Dismiss a finding (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-dismiss-*` exists |
 | Reset a finding to unreviewed (with edit-mode latch) | 🟡 RELEASE.md smoke | Identifier `disposition-reset-*` exists |
@@ -102,15 +102,13 @@ automated, or one moves between buckets.
 
 ## Gaps to close (priority order)
 
-1. **Click summary chip → filter applies.** Identifier already exists.
-   Compose against the findings list to verify filter took effect.
-2. **Lock-gated confirm/dismiss/reset round-trip.** Toggle edit-mode
+1. **Lock-gated confirm/dismiss/reset round-trip.** Toggle edit-mode
    latch, hit confirm, assert disposition state shows in the row.
    Replaces three smoke steps with one XCUI test.
-3. **Lead chip click → focus mode shifts.** Click `lead-chip-V1`,
-   assert `channel-panel-V1` becomes the focused panel.
-4. **Layout mode toggle.** Flip Focus ↔ Strips, assert visible
-   channel-panel count changes.
+2. **Note editor round-trip.** Confirm with note, assert note text
+   round-trips into the context panel's text editor.
+3. **Recent-folder row click.** Seed a recents entry via launch-arg,
+   click the row, assert the recording loads.
 
 ## Counted intentionally NOT in this list
 

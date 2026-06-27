@@ -308,6 +308,89 @@ final class MurmurUITests: XCTestCase {
                        "Viewport state should change after a state-backdrop click (was '\(initial)')")
     }
 
+    // MARK: - Tier 5: layout & filter regression guards
+
+    @MainActor
+    func testClickingLeadChipShiftsFocus() throws {
+        // Guards: lead-chip-bar wiring + focus-mode panel swap. Default
+        // focus is lead I. Click lead-chip-V1; the focused panel should
+        // become channel-panel-V1 and channel-panel-I should disappear
+        // (focus mode renders one panel at a time).
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let panelI = app.descendants(matching: .any)
+            .matching(identifier: "channel-panel-I").firstMatch
+        XCTAssertTrue(panelI.waitForExistence(timeout: 5),
+                      "Default focus is lead I; channel-panel-I should render")
+
+        let chipV1 = app.buttons.matching(identifier: "lead-chip-V1").firstMatch
+        XCTAssertTrue(chipV1.waitForExistence(timeout: 3))
+        chipV1.click()
+
+        let panelV1 = app.descendants(matching: .any)
+            .matching(identifier: "channel-panel-V1").firstMatch
+        XCTAssertTrue(panelV1.waitForExistence(timeout: 3),
+                      "After clicking lead-chip-V1, channel-panel-V1 should render")
+        XCTAssertTrue(waitForElementToDisappear(panelI, timeout: 2),
+                      "Focus mode shows one panel at a time; channel-panel-I should disappear")
+    }
+
+    @MainActor
+    func testLayoutModeToggleShowsAllChannels() throws {
+        // Guards: layout-mode-strips wiring. Default mode is .focus(I) →
+        // only channel-panel-I is rendered. Flip to Strips → every ECG
+        // panel renders.
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let panelI = app.descendants(matching: .any)
+            .matching(identifier: "channel-panel-I").firstMatch
+        XCTAssertTrue(panelI.waitForExistence(timeout: 5))
+
+        // In focus mode, lead II's panel is hidden.
+        let panelII = app.descendants(matching: .any)
+            .matching(identifier: "channel-panel-II").firstMatch
+        XCTAssertFalse(panelII.exists,
+                       "Focus mode hides non-focused channel panels")
+
+        let stripsButton = app.buttons.matching(identifier: "layout-mode-strips").firstMatch
+        XCTAssertTrue(stripsButton.waitForExistence(timeout: 3))
+        stripsButton.click()
+
+        XCTAssertTrue(panelII.waitForExistence(timeout: 3),
+                      "Strips mode should render every channel panel")
+    }
+
+    @MainActor
+    func testClickingSummaryChipFiltersFindings() throws {
+        // Guards: summary-chip → FindingFilter → findings panel binding.
+        // Synthetic fixture has 2 VT findings + 1 VF finding. Default
+        // unfiltered state shows all 3 finding-row entries. Click the VT
+        // chip → only VT shows (VF row disappears).
+        let app = XCUIApplication()
+        app.launchArguments += ["--ui-test-sample"]
+        app.launch()
+
+        let vfRow = app.buttons.matching(identifier: "finding-row-VF").firstMatch
+        XCTAssertTrue(vfRow.waitForExistence(timeout: 5),
+                      "VF row should be visible before any filter is applied")
+
+        let vtChip = app.buttons.matching(identifier: "summary-chip-VT").firstMatch
+        XCTAssertTrue(vtChip.waitForExistence(timeout: 3))
+        vtChip.click()
+
+        XCTAssertTrue(waitForElementToDisappear(vfRow, timeout: 2),
+                      "After narrowing the filter to VT only, the VF row should disappear")
+
+        // VT rows remain visible.
+        let vtRow = app.buttons.matching(identifier: "finding-row-VT").firstMatch
+        XCTAssertTrue(vtRow.exists,
+                      "VT row should remain visible after the VT-only filter")
+    }
+
     @MainActor
     func testFindingsPanelTogglesViaToolbar() throws {
         // Guards: toolbar button wiring, inspector show/hide, panel
