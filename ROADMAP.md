@@ -621,3 +621,112 @@ Apple's medical-app reviewers will scrutinize wording here; framing
 must be locked in before submission. Phase 3 is invisible to Apple
 once Phase 2 is approved — it just upgrades weights of an existing
 capability without changing app behavior at review time.
+
+## Citation infrastructure
+
+Surfaced from the PhysioNet software-catalog audit (2026-06-28): the
+catalog has zero native-macOS apps and zero viewer+on-device-ML tools,
+which makes Murmur the natural home for that intersection — but only
+if it's *citable, reproducible*, and discoverable through the same
+channels MATLAB toolboxes use. This section is a separate workstream
+from the IAPs but is sequenced around them.
+
+### Strategic framing
+
+- **Citation target — Zenodo first, JOSS later.** Zenodo +
+  GitHub-release integration auto-mints a DOI for every tagged
+  release; no peer review, but a permanent citation anchor. Stand
+  this up immediately after v1.0 ships. JOSS (Journal of Open Source
+  Software) paper comes later, once Silver IAP is live — paper
+  covers MurmurCore (the free, open framework); IAPs noted as App
+  Store extensions. SoftwareX is a fallback if JOSS rejects a
+  partially-paid tool.
+- **Reproducibility moat.** VT IAP's remote model updates would
+  normally break "we used VT model v1.3.2" citations. Murmur commits
+  to: every published model version stays DOI-addressable forever;
+  the app surfaces a "freeze model version" toggle; the model version
+  is encoded into the citation output. Cloud-inference competitors
+  structurally cannot match this — on-device + versioned manifest is
+  the differentiator.
+- **Continuous-with-the-field narrative.** Position Murmur as the
+  "first native macOS implementation of community-standard PhysioNet
+  algorithms, extended with the author's modular-feature and
+  SE-ResLSTM research" — not "viewer + author's papers." Lean on the
+  Vest 2018 PhysioNet CV Signal Toolbox as a baseline parity
+  reference.
+
+### Citation routing
+
+Each product tier carries a distinct citation pattern. The "Copy
+citation" menu (below) enforces the routing — researchers cite what
+the tool hands them, so handing them the right combination
+automatically fixes attribution at the source.
+
+| Surface | Citation type | What gets cited |
+|---|---|---|
+| **MurmurCore** (free) | Tool only | Murmur Studio + Zenodo release DOI |
+| **Silver IAP** | Tool + method | Murmur Studio release DOI **plus** the modular-feature paper |
+| **VT IAP** | Method + production implementation | SE-ResLSTM paper **plus** Murmur Studio + the specific VT model version DOI |
+
+### Phase A — Zenodo DOIs for MurmurCore
+
+- [ ] Enable GitHub-to-Zenodo integration on the repo; configure
+      `.zenodo.json` with authors, ORCID, keywords, license.
+- [ ] Add `CITATION.cff` at the repo root (GitHub renders a "Cite this
+      repository" button from it).
+- [ ] First tagged release after v1.0 generates the canonical DOI;
+      pin it in the README and the app's About box.
+- [ ] Document the citation in `docs/` (probably `docs/citation.md`)
+      with copy-pasteable BibTeX/RIS entries.
+
+### Phase B — "Copy citation" menu item
+
+- [ ] Menu item under App / Help / or context menu in the findings
+      panel — emits BibTeX (primary) and RIS (secondary) for the
+      currently-loaded state.
+- [ ] Context-aware generation: inspect what's loaded — MurmurCore
+      only? Silver report visible? VT findings present, and at which
+      model version? — and emit the corresponding entries per the
+      routing table above.
+- [ ] Tie generation to the Zenodo DOIs from Phase A; don't ship this
+      before the DOIs exist or there'd be nothing valid to emit.
+- [ ] Likely ships alongside the Silver IAP (the first version with
+      multiple citation entries to merge).
+
+### Phase C — Versioned VT model manifests (reproducibility)
+
+Tightly coupled to the IAP Phase 3 (Remote model updates) above —
+build this *into* the manifest scheme from day one, not bolted on
+after.
+
+- [ ] Every model version gets its own Zenodo DOI at publish time.
+      Never overwrite, never delete.
+- [ ] Manifest schema extended with `doi` field per version; old
+      manifests stay addressable by URL forever.
+- [ ] "Freeze model version" toggle in settings — when set, the app
+      pins inference to the chosen version and refuses silent
+      upgrades. Surfaced prominently when a paper-in-progress is
+      detected (heuristic: user has invoked Copy Citation recently).
+- [ ] Per-finding badge in the UI showing which model version
+      generated it; screenshots in papers self-document the model
+      provenance.
+- [ ] Public-facing model lifecycle policy in `docs/` describing how
+      versions are minted, retired (never), and addressed.
+
+### Phase D — JOSS paper (later)
+
+- [ ] Draft a JOSS submission for MurmurCore once Silver IAP is in
+      the wild and at least one external user has cited Murmur via
+      Phase B's menu. Use real adoption data as a "Statement of
+      Need."
+- [ ] Acknowledge the IAPs as App Store extensions; do not include
+      them in the open-source review scope.
+- [ ] If JOSS rejects on the partial-paid posture, retarget SoftwareX.
+
+### PhysioNet directory listing
+
+Once v1.0 ships and Phase A's DOI exists, submit Murmur Studio to
+`https://physionet.org/about/software/`. That catalog is the *de
+facto* discovery channel for the target audience; inclusion puts us
+in the same surface as PhysioNet CVST and ECG-Kit. Keep submission
+copy consistent with the RUO framing.
