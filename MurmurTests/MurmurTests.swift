@@ -2307,7 +2307,14 @@ struct DispositionStoreTests {
 
 import Metal
 
-@Suite("Waveform renderer initialization")
+@Suite(
+    "Waveform renderer initialization",
+    // Xcode Cloud workers virtualise the GPU — MTLCreateSystemDefaultDevice
+    // returns nil on the paravirtualised stack, so these tests are
+    // local-only. The same code runs on dev Macs where a real Metal
+    // device exists.
+    .enabled(if: ProcessInfo.processInfo.environment["CI"] == nil)
+)
 @MainActor
 struct WaveformRendererInitTests {
 
@@ -2341,7 +2348,12 @@ struct WaveformRendererInitTests {
 // The drawScene helper this test calls was extracted from `draw(in:)`
 // specifically so it could be exercised without an MTKView.
 
-@Suite("Waveform renderer draws to offscreen texture")
+@Suite(
+    "Waveform renderer draws to offscreen texture",
+    // Same as WaveformRendererInitTests — paravirtualised GPU on Xcode
+    // Cloud can't satisfy MTLCreateSystemDefaultDevice. Local-only gate.
+    .enabled(if: ProcessInfo.processInfo.environment["CI"] == nil)
+)
 @MainActor
 struct WaveformRendererDrawSceneTests {
 
