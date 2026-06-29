@@ -190,8 +190,9 @@ final class MurmurUINavigationTests: XCTestCase {
     }
 
     /// Channel-range badge. Populated by the background min/max scan
-    /// that runs at panel mount. Synthetic fixture uses lead "II", so
-    /// the identifier resolves deterministically.
+    /// that runs at panel mount. Focus mode is the default so only the
+    /// first ECG channel ("I" in the synthetic fixture) is in the view
+    /// tree — that's the panel we look up by accessibility id.
     @MainActor
     func testChannelRangeBadgeAppearsForSyntheticFixture() throws {
         let app = XCUIApplication()
@@ -199,9 +200,9 @@ final class MurmurUINavigationTests: XCTestCase {
         app.launch()
 
         let badge = app.descendants(matching: .any)
-            .matching(identifier: "channel-range-II").firstMatch
+            .matching(identifier: "channel-range-I").firstMatch
         XCTAssertTrue(badge.waitForExistence(timeout: 8),
-                      "Lead II should have a min/max badge once the scan completes")
+                      "Lead I (focused by default) should have a min/max badge once the scan completes")
     }
 
     /// Auto-Y toggle appears alongside the channel-range badge once the
@@ -214,9 +215,9 @@ final class MurmurUINavigationTests: XCTestCase {
         app.launch()
 
         let toggle = app.descendants(matching: .any)
-            .matching(identifier: "autoscale-y-II").firstMatch
+            .matching(identifier: "autoscale-y-I").firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 8),
-                      "Lead II should expose an autoscale-Y toggle once the scan completes")
+                      "Lead I (focused by default) should expose an autoscale-Y toggle once the scan completes")
     }
 
     /// Toolbar button that opens the PNG-snapshot save panel. Guards
