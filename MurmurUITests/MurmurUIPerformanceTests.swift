@@ -142,6 +142,125 @@ final class MurmurUIPerformanceTests: XCTestCase {
     }
 
     @MainActor
+    func testWarmPanBurstSignpostLatency() throws {
+        // Paired with `testColdPanFrameSignpostLatency` to decompose
+        // start-of-pan hesitation into (a) cold-start premium and
+        // (b) steady-state per-tick cost.
+        //
+        // After app launch the bedside view sleeps 500 ms (so MTKView's
+        // display link auto-suspends and the renderer goes cold), then
+        // fires 10 viewport mutations at ~16 ms cadence — the tick rate of
+        // a 60 Hz drag. The signpost intervals captured during the burst
+        // include 1 cold tick + 9 warm ticks; the metric reports the
+        // average across all 10.
+        //
+        // Comparison protocol:
+        //   • cold_test_avg ≈ cold-tick latency (single tick, always cold)
+        //   • burst_test_avg ≈ (cold + 9 × warm) / 10
+        //   • warm_per_tick ≈ (10 × burst_test_avg − cold_test_avg) / 9
+        //   • cold_premium ≈ cold_test_avg − warm_per_tick
+        //
+        // If burst_test_avg ≈ cold_test_avg, every tick is paying cold
+        // cost — the display link isn't staying spun up between ticks and
+        // the warm-on-hover wiring isn't keeping the canvas warm.
+        let measureOptions = XCTMeasureOptions()
+        measureOptions.iterationCount = 5
+        measure(
+            metrics: [
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "UpdateNSView"
+                ),
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "Sync"
+                ),
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "RendererDraw"
+                ),
+            ],
+            options: measureOptions
+        ) {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "--ui-test-sample",
+                "--ui-test-initial-duration=2",
+                "--ui-test-pan-burst=10"
+            ]
+            app.launch()
+            let viewportState = app.descendants(matching: .any)
+                .matching(identifier: "ui-test-viewport-state").firstMatch
+            // 10 ticks × 40 samples = 400. Initial range is 0..500 (2 s
+            // window at the synthetic 250 Hz). Final state = start=400 end=900,
+            // both 3-digit so macOS's accessibility post-processor doesn't
+            // commafy them and break the equality predicate.
+            let expected = NSPredicate(format: "label == 'start=400 end=900'")
+            _ = XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: expected, object: viewportState)],
+                timeout: 10
+            )
+        }
+    }
+
+    @MainActor
+    func testColdPanFrameSignpostLatency() throws {
+        // Diagnostic for the start-of-pan hesitation: reads OSSignposter
+        // intervals emitted from WaveformCanvas.updateNSView, the inner
+        // sync() that rebuilds grid + annotation buffers, and the renderer's
+        // draw(in:). Each iteration cold-starts the app and triggers exactly
+        // one viewport mutation, so every captured interval is a "first
+        // frame after idle" measurement — the exact case the analyst feels
+        // when grabbing the chart for a drag.
+        //
+        // Compare the three intervals: if Sync dominates the
+        // UpdateNSView envelope, the per-tick MTLBuffer rebuilds are the
+        // culprit. If RendererDraw dominates, the GPU command commit or the
+        // display-link wakeup is the culprit. If neither, look upstream at
+        // SwiftUI body re-evaluation cost.
+        let measureOptions = XCTMeasureOptions()
+        measureOptions.iterationCount = 5
+        measure(
+            metrics: [
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "UpdateNSView"
+                ),
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "Sync"
+                ),
+                XCTOSSignpostMetric(
+                    subsystem: "com.kevinlong.murmur",
+                    category: "PointsOfInterest",
+                    name: "RendererDraw"
+                ),
+            ],
+            options: measureOptions
+        ) {
+            let app = XCUIApplication()
+            app.launchArguments = [
+                "--ui-test-sample",
+                "--ui-test-initial-duration=2",
+                "--ui-test-pan-by=200"
+            ]
+            app.launch()
+            let viewportState = app.descendants(matching: .any)
+                .matching(identifier: "ui-test-viewport-state").firstMatch
+            let expected = NSPredicate(format: "label == 'start=200 end=700'")
+            _ = XCTWaiter.wait(
+                for: [XCTNSPredicateExpectation(predicate: expected, object: viewportState)],
+                timeout: 10
+            )
+        }
+    }
+
+    @MainActor
     func testViewportZoomLatency() throws {
         // Time to reach the expected post-zoom viewport state. Captures the
         // cost of viewport.setWidth plus the re-render. Test values stay

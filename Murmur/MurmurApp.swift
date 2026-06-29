@@ -42,5 +42,10 @@ struct MurmurApp: App {
                 Button("Contact Support…")    { URLLauncher.shared.open(HelpURL.support) }
             }
         }
+        // App-wide preferences. Adds a "Settings…" item under the app menu
+        // with the standard ⌘, shortcut.
+        Settings {
+            SettingsView()
+        }
     }
 }

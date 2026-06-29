@@ -26,7 +26,7 @@ import SwiftUI
 /// current pointer location (in SwiftUI top-left coordinates) on
 /// mouseEntered/mouseMoved, and `nil` on mouseExited.
 struct HoverTrackingView: NSViewRepresentable {
-    var onUpdate: (CGPoint?) -> Void
+    var onUpdate: @MainActor (CGPoint?) -> Void
 
     func makeNSView(context: Context) -> TrackerNSView {
         let view = TrackerNSView()
@@ -40,7 +40,7 @@ struct HoverTrackingView: NSViewRepresentable {
 }
 
 final class TrackerNSView: NSView {
-    var onUpdate: ((CGPoint?) -> Void)?
+    var onUpdate: (@MainActor (CGPoint?) -> Void)?
     private var trackingArea: NSTrackingArea?
 
     /// Flip the coordinate system so the points reported to SwiftUI match
@@ -74,11 +74,11 @@ final class TrackerNSView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        onUpdate?(nil)
+        MainActor.assumeIsolated { onUpdate?(nil) }
     }
 
     private func report(_ event: NSEvent) {
         let pt = convert(event.locationInWindow, from: nil)
-        onUpdate?(pt)
+        MainActor.assumeIsolated { onUpdate?(pt) }
     }
 }

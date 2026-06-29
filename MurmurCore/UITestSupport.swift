@@ -57,6 +57,16 @@
 //        — the same mutation `DragGesture.onChanged` calls. XCUI can't
 //        synthesise `NSEvent.mouseDragged`, so this is the bypass.
 //
+//    --ui-test-pan-burst=<count>
+//        On bedside appear, sleeps 500 ms (so MTKView's display link
+//        suspends and the renderer goes truly cold), then fires `count`
+//        viewport mutations spaced ~16 ms apart — the cadence of a
+//        real 60 Hz drag's onChanged stream. Each tick advances startSample
+//        by `panBurstTickDeltaSamples` (50 by default). Pairs with the
+//        signpost-based perf tests: the first captured tick is cold, the
+//        rest are warm, so the difference between cold-only single-pan
+//        and burst-average latency exposes the cold-start premium.
+//
 //    --ui-test-zoom-to=<seconds>
 //        On bedside appear, calls `viewport.setWidth(seconds * sampleRate,
 //        anchorFraction: 0.5)` — the same mutation
@@ -118,6 +128,33 @@ enum UITestSupport {
               let n = Int64(raw) else { return nil }
         return n
     }
+
+    /// If `--ui-test-pan-burst=N` is set, returns the tick count. BedsideView
+    /// fires N viewport mutations after an idle prelude — the cold-start
+    /// of the first tick + the warm cost of the next N-1 lets the perf
+    /// test decompose hesitation into "wake from idle" vs "steady-state
+    /// per-tick" cost.
+    static var panBurstTickCount: Int? {
+        guard let raw = value(forFlag: "ui-test-pan-burst"),
+              let n = Int(raw), n > 0 else { return nil }
+        return n
+    }
+
+    /// Per-tick startSample advance for `--ui-test-pan-burst`. Kept small
+    /// enough that `count * delta` lands well below 1000 — macOS's
+    /// accessibility post-processor injects thousands separators into 4+
+    /// digit numbers, which would break the test's label predicate.
+    static let panBurstTickDeltaSamples: Int64 = 40
+
+    /// Idle prelude before the first burst tick. 500 ms is comfortably
+    /// longer than MTKView's display-link auto-suspend window when
+    /// `isPaused=true`, so the first tick measures a genuine cold-start.
+    static let panBurstIdleNanoseconds: UInt64 = 500_000_000
+
+    /// Inter-tick sleep. ~16 ms approximates the cadence of a real drag's
+    /// onChanged events at 60 Hz; on ProMotion it's a slight over-sleep,
+    /// which still keeps the display link spinning between ticks.
+    static let panBurstTickIntervalNanoseconds: UInt64 = 16_000_000
 
     /// If `--ui-test-zoom-to=N` is set, returns N seconds. BedsideView
     /// applies this on first appear by calling `viewport.setWidth(seconds *

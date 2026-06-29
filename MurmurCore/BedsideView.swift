@@ -10,6 +10,7 @@
 //  on the overview ribbon scrubs.
 //
 
+import AppKit
 import Charts
 import SwiftUI
 import UniformTypeIdentifiers
@@ -248,6 +249,17 @@ struct BedsideView: View {
             if let url = UITestSupport.attachFindingsURL {
                 handleAttachFindings(.success(url))
                 UITestSupport.attachFindingsURL = nil
+            }
+            if let count = UITestSupport.panBurstTickCount {
+                // Idle long enough that MTKView's display link auto-suspends,
+                // then drip N viewport mutations at drag-tick cadence. The
+                // first signpost interval captures cold-start cost; the rest
+                // capture warm steady-state. See testWarmPanBurstSignpostLatency.
+                try? await Task.sleep(nanoseconds: UITestSupport.panBurstIdleNanoseconds)
+                for _ in 0..<count {
+                    viewport.setStart(viewport.startSample + UITestSupport.panBurstTickDeltaSamples)
+                    try? await Task.sleep(nanoseconds: UITestSupport.panBurstTickIntervalNanoseconds)
+                }
             }
         }
     }
@@ -700,6 +712,29 @@ private struct ChannelPanel: View {
     @State private var dragStartRange: Range<Int64>?
     @State private var zoomStartWidth: Int64?
 
+    /// Signature of the visible annotation set on the previous drag tick.
+    /// What goes into the set depends on `hapticMode` — IDs for the
+    /// "every new annotation" mode, categories for the "new category
+    /// only" mode. A non-empty delta vs. this set triggers a haptic
+    /// tick. Reset on drag start.
+    @State private var lastHapticSignature: Set<String> = []
+
+    /// Visual translation in points applied to the chart content while a
+    /// drag is pulling past a viewport boundary. Stays at zero when the
+    /// drag is within the recording's bounds. When the user pulls past
+    /// `startSample == 0` or `endSample == totalSamples`, the excess
+    /// drag distance is fed through a rubber-band damping curve and the
+    /// chart shifts to follow the cursor partially — the classic
+    /// iOS-style elastic edge. Springs back to 0 on drag release.
+    @State private var overscrollPx: CGFloat = 0
+
+    /// User preference for haptic feedback during pan. Stored in
+    /// UserDefaults via `@AppStorage`; defaults to `.off` so first-launch
+    /// is silent. Live-read every onChanged so toggling the Settings
+    /// picker takes effect on the next drag without restart.
+    @AppStorage(HapticPreferences.modeKey)
+    private var hapticMode: HapticMode = HapticPreferences.defaultMode
+
     // Hover-driven tooltip: which finding is under the cursor, and where
     // (in canvas-local coordinates) the cursor currently sits.
     @State private var hoveredAnnotation: Annotation?
@@ -708,6 +743,7 @@ private struct ChannelPanel: View {
     /// vertical crosshair + time readout — present even when there's no
     /// finding under the cursor.
     @State private var hoverIsActive: Bool = false
+
 
     private static let yMin: Double = -5
     private static let yMax: Double =  5
@@ -749,31 +785,38 @@ private struct ChannelPanel: View {
         GeometryReader { geo in
             let liveSize = geo.size
             ZStack(alignment: .topLeading) {
-                WaveformCanvas(
-                    channel: channel,
-                    directory: directory,
-                    startSample: viewport.startSample,
-                    endSample: viewport.endSample,
-                    annotations: visibleAnnotations
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Chart content — translated by the rubber-band offset so
+                // the trace, off-scale markers, and annotation labels all
+                // move together when the user pulls past a viewport
+                // boundary. Cursor-anchored overlays below the Group are
+                // intentionally NOT offset so the crosshair / tooltip
+                // stay locked to the cursor while the chart bands away.
+                Group {
+                    WaveformCanvas(
+                        channel: channel,
+                        directory: directory,
+                        startSample: viewport.startSample,
+                        endSample: viewport.endSample,
+                        annotations: visibleAnnotations
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                WaveformClippingOverlay(
-                    clippedRanges: clippedRanges,
-                    startSample: viewport.startSample,
-                    endSample: viewport.endSample
-                )
+                    WaveformClippingOverlay(
+                        clippedRanges: clippedRanges,
+                        startSample: viewport.startSample,
+                        endSample: viewport.endSample
+                    )
 
-                WaveformAnnotationOverlay(
-                    annotations: visibleAnnotations,
-                    startSample: viewport.startSample,
-                    endSample: viewport.endSample
-                )
+                    WaveformAnnotationOverlay(
+                        annotations: visibleAnnotations,
+                        startSample: viewport.startSample,
+                        endSample: viewport.endSample
+                    )
+                }
+                .offset(x: overscrollPx)
 
                 HoverTrackingView { location in
-                    Task { @MainActor in
-                        applyHover(location, in: liveSize)
-                    }
+                    applyHover(location, in: liveSize)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .task(id: liveSize) {
@@ -836,7 +879,15 @@ private struct ChannelPanel: View {
         let cursorSample = viewport.startSample + Int64(Double(span) * Double(cursorX / canvasSize.width))
         let cursorTime = Double(cursorSample) / channel.sampleRate
 
-        ZStack(alignment: .top) {
+        // `.topLeading` alignment + `.offset` keeps each subview's layout
+        // area tight (1 pt wide for the rule, intrinsic for the label).
+        // We avoided `.position(x:y:)` here because that modifier expands
+        // the view's reported area to fill the parent — even with
+        // `.allowsHitTesting(false)` on the ZStack, the expanded area
+        // appeared to confuse SwiftUI's drag-gesture recognizer and
+        // intermittently cancel pans mid-drag once the cursor crossed
+        // the crosshair's frozen position.
+        ZStack(alignment: .topLeading) {
             Rectangle()
                 .fill(Color.accentColor.opacity(0.7))
                 .frame(width: 1, height: canvasSize.height)
@@ -850,7 +901,11 @@ private struct ChannelPanel: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.thinMaterial)
                 )
-                .offset(x: max(0, min(canvasSize.width - 56, cursorX - 28)), y: 4)
+                .fixedSize()
+                .offset(
+                    x: max(0, min(canvasSize.width - 56, cursorX - 28)),
+                    y: 4
+                )
         }
         .frame(width: canvasSize.width, height: canvasSize.height, alignment: .topLeading)
         .allowsHitTesting(false)
@@ -981,18 +1036,57 @@ private struct ChannelPanel: View {
     // MARK: Gestures
 
     private func panGesture(in canvasSize: CGSize) -> some Gesture {
-        DragGesture(minimumDistance: 2)
+        // minimumDistance: 1 keeps a one-pixel dead zone so a click that
+        // jitters by a hair doesn't read as a drag, but eliminates the
+        // 2-pt accumulation delay that read as start-of-pan hesitation.
+        DragGesture(minimumDistance: 1)
             .onChanged { value in
-                if dragStartRange == nil { dragStartRange = viewport.rangeSamples }
+                if dragStartRange == nil {
+                    dragStartRange = viewport.rangeSamples
+                    lastHapticSignature = hapticSignature(for: visibleAnnotations)
+                }
                 guard let start = dragStartRange, canvasSize.width > 0 else { return }
                 let width = start.upperBound - start.lowerBound
                 let samplesPerPixel = Double(width) / Double(canvasSize.width)
-                let deltaSamples = Int64(-value.translation.width * samplesPerPixel)
-                viewport.setStart(start.lowerBound + deltaSamples)
+                let desiredDeltaSamples = Int64(-value.translation.width * samplesPerPixel)
+                let proposedStart = start.lowerBound + desiredDeltaSamples
+                // Clamp to recording bounds — the viewport itself never
+                // exceeds [0, totalSamples - width].
+                let maxStart = max(0, viewport.totalSamples - width)
+                let clampedStart = max(0, min(maxStart, proposedStart))
+                viewport.setStart(clampedStart)
+                // The pixel distance the cursor pulled past the boundary
+                // (positive when pulling past the left edge, negative when
+                // pulling past the right). Feed through rubber-band damping
+                // so the chart shifts visibly to follow the cursor but with
+                // diminishing return — the classic iOS elastic edge.
+                let overshootSamples = Double(clampedStart - proposedStart)
+                let overshootPx = CGFloat(overshootSamples / samplesPerPixel)
+                overscrollPx = Self.rubberBanded(
+                    overshootPx: overshootPx,
+                    canvasWidth: canvasSize.width
+                )
+                // Keep the crosshair tracking the cursor during the drag.
+                // NSTrackingArea suppresses mouseMoved while a button is
+                // down, so the hover path can't update hoverLocation;
+                // without this the crosshair freezes at the drag-start
+                // position and analysts can't tell whether the chart is
+                // unresponsive or rubber-banding against a boundary.
+                hoverLocation = value.location
+                hoverIsActive = true
+                emitHapticIfAnnotationsEntered()
             }
             .onEnded { value in
-                defer { dragStartRange = nil }
+                defer {
+                    dragStartRange = nil
+                    lastHapticSignature = []
+                }
                 guard canvasSize.width > 0 else { return }
+                // Spring the rubber-band back to neutral. Snappy enough
+                // that it feels like a release, not a glide.
+                withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) {
+                    overscrollPx = 0
+                }
                 // DragGesture estimates a momentum trajectory in
                 // `predictedEndLocation`. The difference between the
                 // release point and the predicted rest position is the
@@ -1008,6 +1102,24 @@ private struct ChannelPanel: View {
             }
     }
 
+    /// Apple's documented rubber-band damping curve. Input is the raw
+    /// pixel distance pulled past the boundary (signed); output is the
+    /// visible translation that the chart should apply. Asymptotically
+    /// approaches `canvasWidth`, so the chart never fully leaves the
+    /// visible area no matter how hard the analyst pulls.
+    ///
+    /// Formula: `y = (1 - 1 / (|x| * c / d + 1)) * d`, with the sign of
+    /// the input preserved. `c = 0.55` matches UIKit's scroll-view
+    /// rubber-band feel.
+    private static func rubberBanded(overshootPx: CGFloat, canvasWidth: CGFloat) -> CGFloat {
+        guard canvasWidth > 0 else { return 0 }
+        let c: CGFloat = 0.55
+        let absOvershoot = abs(overshootPx)
+        let sign: CGFloat = overshootPx >= 0 ? 1 : -1
+        let damped = (1 - 1 / (absOvershoot * c / canvasWidth + 1)) * canvasWidth
+        return damped * sign
+    }
+
     private func zoomGesture(in canvasSize: CGSize) -> some Gesture {
         MagnifyGesture()
             .onChanged { value in
@@ -1020,6 +1132,44 @@ private struct ChannelPanel: View {
                 viewport.setWidth(newWidth, anchorFraction: 0.5)
             }
             .onEnded { _ in zoomStartWidth = nil }
+    }
+
+    /// Fires a single `.alignment` haptic tick when the signature of the
+    /// visible annotation set has grown since the previous drag tick.
+    /// What "grown" means depends on `hapticMode`:
+    ///   • `.off` — no-op
+    ///   • `.allAnnotations` — any new annotation (by ID) entering the
+    ///     viewport triggers a tick
+    ///   • `.categoryTransitions` — only a new *category* (not seen on
+    ///     the previous tick) triggers a tick, so clustered findings of
+    ///     the same kind don't produce a buzz
+    /// Force Touch trackpad only; a no-op on Magic Mouse and external
+    /// pointing devices.
+    private func emitHapticIfAnnotationsEntered() {
+        guard hapticMode != .off else { return }
+        let current = hapticSignature(for: visibleAnnotations)
+        if !current.subtracting(lastHapticSignature).isEmpty {
+            NSHapticFeedbackManager.defaultPerformer.perform(
+                .alignment,
+                performanceTime: .now
+            )
+        }
+        lastHapticSignature = current
+    }
+
+    /// Projects a visible-annotation list into the comparison set that
+    /// `emitHapticIfAnnotationsEntered` diffs against. The projection
+    /// depends on the active `hapticMode` so the same diff-on-grow logic
+    /// services both per-annotation and per-category modes.
+    private func hapticSignature(for visible: [Annotation]) -> Set<String> {
+        switch hapticMode {
+        case .off:
+            return []
+        case .allAnnotations:
+            return Set(visible.map { String(describing: $0.id) })
+        case .categoryTransitions:
+            return Set(visible.map(\.category))
+        }
     }
 }
 

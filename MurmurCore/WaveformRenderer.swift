@@ -17,6 +17,8 @@
 import Foundation
 import Metal
 import MetalKit
+import os.log
+import os.signpost
 import simd
 
 // MARK: - Uniform structs (must match WaveformShaders.metal byte layout)
@@ -127,6 +129,14 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     }
     var pointBuckets: [AnnotationBucket] = []
     var rangeBuckets: [AnnotationBucket] = []
+
+    /// Identity hash of the last annotation set fed into setAnnotations.
+    /// During a sustained pan, the visible-annotation set is usually
+    /// unchanged tick-to-tick — same findings, same positions. Skipping
+    /// the bucket rebuild when the set is identical eliminates several
+    /// MTLBuffer allocations per drag event, which adds up at 60-120 Hz
+    /// gesture rates. Nil until the first call so we always rebuild once.
+    private var lastAnnotationSignature: Int?
 
     init?(device: MTLDevice? = nil) {
         guard let device = device ?? MTLCreateSystemDefaultDevice(),
@@ -291,8 +301,15 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
 
     /// Replaces the annotation buckets from a list of visible annotations.
     /// Groups by category and kind so each bucket can be drawn with its own
-    /// category color in a single draw call.
+    /// category color in a single draw call. Caches the input set's
+    /// identity hash and skips the rebuild when called with the same set —
+    /// during a pan, the visible findings rarely change tick-to-tick, so
+    /// the cache hit eliminates per-frame buffer allocations.
     func setAnnotations(_ visible: [Annotation]) {
+        let signature = annotationSignature(visible)
+        if signature == lastAnnotationSignature { return }
+        lastAnnotationSignature = signature
+
         guard !visible.isEmpty else {
             pointBuckets = []
             rangeBuckets = []
@@ -364,6 +381,19 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        let signpostID = OSSignpostID(log: waveformRenderLog)
+        os_signpost(.begin, log: waveformRenderLog, name: "RendererDraw", signpostID: signpostID)
+        defer { os_signpost(.end, log: waveformRenderLog, name: "RendererDraw", signpostID: signpostID) }
+
+        // Acquire the command buffer first — it never blocks. The drawable
+        // and its render-pass descriptor are acquired immediately below,
+        // since the MTKView guarantees one's ready by the time draw(in:)
+        // is called. We keep the encoding window tight (descriptor →
+        // configure → drawScene → present + commit) so the drawable's
+        // in-flight window is as small as possible — that's what gives
+        // the swap chain headroom to recycle and avoids the 7 ms
+        // currentDrawable blocking spikes seen in the signpost trace.
+        guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
         guard let drawable = view.currentDrawable,
               let descriptor = view.currentRenderPassDescriptor else { return }
 
@@ -383,19 +413,15 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
         descriptor.colorAttachments[0].storeAction =
             descriptor.colorAttachments[0].resolveTexture != nil ? .multisampleResolve : .store
 
-        guard let cmdBuffer = commandQueue.makeCommandBuffer() else { return }
-
-        let needsFollowUp = drawScene(
+        // drawScene returns a "needs follow-up" hint that mattered when the
+        // canvas was setNeedsDisplay-driven (it could go idle mid-fade);
+        // now that the canvas runs continuously, the next vsync handles
+        // the follow-up automatically, so we discard the return value.
+        _ = drawScene(
             commandBuffer: cmdBuffer,
             descriptor: descriptor,
             drawableSize: view.drawableSize
         )
-
-        if needsFollowUp {
-            // Still mid-transition; renderer is setNeedsDisplay-driven, so we
-            // have to ask for the next frame ourselves until progress hits 1.
-            view.setNeedsDisplay(view.bounds)
-        }
 
         cmdBuffer.present(drawable)
         cmdBuffer.commit()
@@ -613,6 +639,17 @@ final class WaveformRenderer: NSObject, MTKViewDelegate {
     }
 
     // MARK: - Helpers
+
+    /// Cheap identity hash of an annotation set. Order-sensitive so a
+    /// re-sort still rebuilds — callers already pass deterministic order.
+    private func annotationSignature(_ visible: [Annotation]) -> Int {
+        var hasher = Hasher()
+        hasher.combine(visible.count)
+        for ann in visible {
+            hasher.combine(ann.id)
+        }
+        return hasher.finalize()
+    }
 
     private func makeLineBuffer(
         xLines: [Double],

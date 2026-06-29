@@ -13,7 +13,26 @@
 //
 
 import MetalKit
+import os.log
+import os.signpost
 import SwiftUI
+
+/// Shared OSLog handle for the canvas + renderer hot path. Uses the
+/// special `.pointsOfInterest` category so the signposts are emitted
+/// unconditionally — most other categories require a subscriber (like
+/// Instruments) to be attached before signposts go out. That's what
+/// blocks `XCTOSSignpostMetric` from picking them up during a XCUITest
+/// run, since the test runner doesn't subscribe to arbitrary subsystems
+/// in the launched app process. PointsOfInterest sidesteps the gating.
+///
+/// We use the lower-level `os_signpost` C-style API rather than the
+/// Swift `OSSignposter` wrapper because the wrapper's intervals don't
+/// reliably surface in `XCTOSSignpostMetric` cross-process; the C-style
+/// API hits the unified logging system directly.
+let waveformRenderLog = OSLog(
+    subsystem: "com.kevinlong.murmur",
+    category: .pointsOfInterest
+)
 
 struct WaveformCanvas: NSViewRepresentable {
     let channel: Channel
@@ -34,6 +53,14 @@ struct WaveformCanvas: NSViewRepresentable {
         let view = MTKView()
         view.colorPixelFormat = .bgra8Unorm
         view.framebufferOnly  = true
+        // On-demand rendering: each SwiftUI updateNSView synchronously
+        // drives one draw via `nsView.draw()`. That avoids the judder
+        // pattern that pure continuous (120 Hz) render produces when
+        // mouse events fire at ~60 Hz — every other frame would otherwise
+        // re-present an identical scene, which the eye reads as the trace
+        // stuttering. Synchronous draws keep the cadence locked to the
+        // gesture event rate, so each unique frame is shown for exactly
+        // one vsync.
         view.enableSetNeedsDisplay = true
         view.isPaused = true
         view.preferredFramesPerSecond = 120
@@ -61,13 +88,25 @@ struct WaveformCanvas: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: MTKView, context: Context) {
+        let signpostID = OSSignpostID(log: waveformRenderLog)
+        os_signpost(.begin, log: waveformRenderLog, name: "UpdateNSView", signpostID: signpostID)
+        defer { os_signpost(.end, log: waveformRenderLog, name: "UpdateNSView", signpostID: signpostID) }
         sync(view: nsView, coordinator: context.coordinator)
-        nsView.setNeedsDisplay(nsView.bounds)
+        // Synchronous draw: each viewport mutation produces exactly one
+        // frame, presented at the next vsync. We don't use setNeedsDisplay
+        // here because that would defer the draw to the next display-link
+        // tick, adding up to ~16 ms of latency on a cold display link.
+        // Calling draw() directly fires the renderer's draw(in:) callback
+        // on the same runloop turn — the GPU work is queued immediately.
+        nsView.draw()
     }
 
     // MARK: - Sync helpers
 
     private func sync(view: MTKView, coordinator: Coordinator) {
+        let signpostID = OSSignpostID(log: waveformRenderLog)
+        os_signpost(.begin, log: waveformRenderLog, name: "Sync", signpostID: signpostID)
+        defer { os_signpost(.end, log: waveformRenderLog, name: "Sync", signpostID: signpostID) }
         guard let renderer = coordinator.renderer else { return }
         renderer.uniforms.startSample = Float(startSample)
         renderer.uniforms.endSample   = Float(endSample)
