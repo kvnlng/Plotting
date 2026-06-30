@@ -3,7 +3,7 @@
 //  MurmurCore
 //
 //  The runtime contract between the free open-source viewer (MurmurCore)
-//  and the paid extension frameworks (MurmurAnnotation, MurmurSilver,
+//  and the paid extension frameworks (MurmurAnnotation, MurmurMetrics,
 //  MurmurInference). Every framework that examines a Recording and emits
 //  Annotations conforms to this protocol. The host (BedsideView /
 //  FindingsPanel) discovers conforming types via `ProducerRegistry` and
@@ -50,7 +50,7 @@ import Foundation
 
 /// A pipeline that examines a `Recording` and emits `Annotation`s. The
 /// free viewer registers `SyntheticFindingProducer` as a baseline impl;
-/// each paid framework (`MurmurAnnotation`, `MurmurSilver`,
+/// each paid framework (`MurmurAnnotation`, `MurmurMetrics`,
 /// `MurmurInference`) registers its own conformance from the framework's
 /// entry point at app launch.
 ///
@@ -60,14 +60,14 @@ public protocol FindingProducer: Sendable {
     /// Stable identifier — emitted as `annotations[].source` so a
     /// finding can be traced back to the producer that generated it.
     /// Also the registry key, so duplicates clobber. Convention:
-    /// reverse-DNS with a producer suffix (`murmur.silver`,
+    /// reverse-DNS with a producer suffix (`murmur.metrics`,
     /// `murmur.vtdetect`, `murmur.synthetic`).
     var id: String { get }
 
     /// User-facing label shown in:
-    ///   • IAP product cards (e.g., "Silver Layer Metrics")
+    ///   • IAP product cards (e.g., "ECG Metrics")
     ///   • Findings-panel source filter chips
-    ///   • Progress UI ("Scanning with Silver Layer Metrics…")
+    ///   • Progress UI ("Scanning with ECG Metrics…")
     /// Should be short and noun-phrase shaped, not a sentence.
     var displayName: String { get }
 

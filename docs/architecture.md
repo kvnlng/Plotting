@@ -30,7 +30,7 @@ checks unlock the paid frameworks at runtime.
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  MurmurAnnotation  (paid — Annotation Authoring IAP)            │
-│  MurmurSilver      (paid — Silver Layer Metrics IAP)            │
+│  MurmurMetrics     (paid — ECG Metrics IAP)                     │
 │  MurmurInference   (paid — VT/VF Detection IAP)                 │
 │    Each conforms to FindingProducer.                            │
 │    Source lives in the private kvnlng/Murmur-Extensions repo.   │

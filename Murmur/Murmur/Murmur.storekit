@@ -20,16 +20,16 @@
     {
       "displayPrice" : "9.99",
       "familyShareable" : false,
-      "internalID" : "SILVER-METRICS-0001",
+      "internalID" : "ECG-METRICS-0001",
       "localizations" : [
         {
-          "description" : "Cardiopulmonary Telemetry Silver-Layer metrics computed on device. Deterministic, peer-reviewed methods. Research use only.",
-          "displayName" : "Silver Layer Metrics",
+          "description" : "Standard ECG analytic measures computed on device — HRV (RMSSD, SDNN, pNN50), RR-interval statistics, interval measurements, frequency-domain HRV. For clinical researchers and cardiologists.",
+          "displayName" : "ECG Metrics",
           "locale" : "en_US"
         }
       ],
-      "productID" : "com.kevinlong.murmur.silvermetrics",
-      "referenceName" : "Silver Layer Metrics",
+      "productID" : "com.kevinlong.murmur.metrics",
+      "referenceName" : "ECG Metrics",
       "type" : "NonConsumable"
     },
     {

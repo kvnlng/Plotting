@@ -1,6 +1,6 @@
 {
   "title": "Murmur Studio",
-  "description": "A free, open-source native macOS viewer for PhysioNet WFDB recordings. Renders ECG and multi-rate telemetry on a Metal-backed paper canvas alongside upstream-produced findings, with analyst disposition workflows. Optional paid extensions on the App Store add annotation authoring, Silver-layer cardiopulmonary feature extraction, and VT/VF detection (research use only).",
+  "description": "A free, open-source native macOS viewer for PhysioNet WFDB recordings. Renders ECG and multi-rate telemetry on a Metal-backed paper canvas alongside upstream-produced findings, with analyst disposition workflows. Optional paid extensions on the App Store add annotation authoring, standard ECG analytic measures (HRV, RR-interval statistics, intervals), and VT/VF detection (research use only).",
   "license": "MIT",
   "upload_type": "software",
   "access_right": "open",

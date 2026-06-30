@@ -484,16 +484,15 @@ in App Store review.
   edit / delete. *Consuming* upstream findings is free; *creating*
   new findings is where research labor concentrates and where
   labs/PIs will pay.
-- **Silver Layer Metrics IAP (paid)** — Cardiopulmonary Telemetry
-  Silver-Layer metrics from the user's paper *"Modular Feature
-  Architecture for Mechanical Ventilation and Cardiopulmonary
-  Telemetry."* Pure Swift port (Accelerate / vDSP where it helps).
-  Deterministic, reviewable, no regulatory exposure — surfaces
-  engineered features, not diagnoses. Ships first per stagger-risk.
-- **VT/VF Detection IAP (paid)** — SE-ResLSTM model from the user's
-  paper *"Automated Detection of Malignant Ventricular Arrhythmias
-  in Noisy ICU Telemetry using SE-ResLSTM,"* converted PyTorch →
-  Core ML. Continuously improved off-app (not from customer data)
+- **ECG Metrics IAP (paid)** — Standard ECG analytic measures over
+  any recording: HRV (RMSSD, SDNN, pNN50), RR-interval statistics,
+  interval measurements, frequency-domain HRV. Pure Swift
+  (Accelerate / vDSP where it helps). Deterministic, reviewable, no
+  regulatory exposure — surfaces engineered measurements, not
+  diagnoses. Ships first per stagger-risk.
+- **VT/VF Detection IAP (paid)** — SE-ResLSTM Core ML model for
+  detecting malignant ventricular arrhythmias in noisy ICU
+  telemetry. Continuously improved off-app (not from customer data)
   and delivered to paid users via remote model updates. **All UI
   must frame this as research-use-only — no language implying
   clinical decision support.**
@@ -503,9 +502,8 @@ in App Store review.
 - Public: `kvnlng/Murmur` — the viewer source. Re-public the
   existing repo before Phase 0 work; the paid framework code isn't
   there yet anyway.
-- Private: `kvnlng/Murmur-Extensions` (working name) — the three
-  paid frameworks: `MurmurAnnotation`, `MurmurSilver`,
-  `MurmurInference`.
+- Private: `kvnlng/Murmur-Extensions` — the three paid frameworks:
+  `MurmurAnnotation`, `MurmurMetrics`, `MurmurInference`.
 - The App Store ships **one binary** that links both. IAPs unlock
   the paid frameworks at runtime via entitlement checks. The split
   is *source distribution*, not *binary distribution*.
@@ -513,7 +511,7 @@ in App Store review.
 **Pricing direction** (open, to refine before Phase 1 submission):
 
 - Annotation Authoring → non-consumable one-time purchase.
-- Silver Metrics → non-consumable one-time purchase.
+- ECG Metrics → non-consumable one-time purchase.
 - VT Detection → annual auto-renewing subscription, because users
   are paying for the *ongoing* model improvement pipeline, not a
   frozen artifact. Alternative: lifetime non-consumable at a higher
@@ -527,7 +525,7 @@ Three independent layers, each owning one concern:
 ```
 Feature surfaces (SwiftUI views in MurmurCore or paid frameworks)
   ↓ asks "can the user use this?" then "give me an answer"
-Compute Services (AnnotationAuthoringService, SilverMetricsService, VTDetectionService)
+Compute Services (AnnotationAuthoringService, ECGMetricsService, VTDetectionService)
   ↓ consults                       ↓ loads
 PurchaseStore (StoreKit 2)     ModelRegistry (VT only)
                                    ↓ talks to
@@ -567,35 +565,35 @@ the right architectural shape.
 - [x] Set up the private `Murmur-Extensions` repo and confirm SPM
       resolution from the app target into it via Xcode Cloud. The
       three paid frameworks ship as SPM library products
-      (`MurmurAnnotation`, `MurmurSilver`, `MurmurInference`) from
-      `kvnlng/Murmur-Extensions` v0.1.0 — supersedes the earlier
+      (`MurmurAnnotation`, `MurmurMetrics`, `MurmurInference`) from
+      `kvnlng/Murmur-Extensions` v0.2.0 — supersedes the earlier
       plan to extract them as in-project framework targets.
 - [x] Enable the GitHub→Zenodo OAuth integration and cut the first
       GitHub Release so Zenodo mints the canonical DOI. Concept DOI
       `10.5281/zenodo.21077528`, v1.2.1 version DOI
       `10.5281/zenodo.21077529`, minted 2026-06-30.
 
-### Phase 1 — StoreKit foundation + Silver Metrics IAP
+### Phase 1 — StoreKit foundation + ECG Metrics IAP
 
-First paid submission. Silver is the lowest-scrutiny option (no ML,
-peer-reviewed methods, deterministic output) so it validates the
-StoreKit wiring before higher-risk IAPs follow.
+First paid submission. ECG Metrics is the lowest-scrutiny option (no
+ML, deterministic output, standard analytic measures) so it
+validates the StoreKit wiring before higher-risk IAPs follow.
 
 - [ ] `PurchaseStore` — `@MainActor @Observable` actor. Loads
       `Product.products(for:)` on launch, listens forever to
       `Transaction.updates`, exposes `owns(_:) -> Bool`, `purchase(_:)`,
       and `restore()`. Refuses unverified transactions.
 - [ ] Product IDs registered in App Store Connect:
-      `com.kevinlong.murmur.silvermetrics` (non-consumable),
+      `com.kevinlong.murmur.metrics` (non-consumable),
       `com.kevinlong.murmur.annotationauthoring` (non-consumable),
       `com.kevinlong.murmur.vtdetection` (subscription or
       non-consumable, TBD).
 - [ ] Restore Purchases UI surface (Apple-mandated).
-- [ ] Silver Layer pipeline ported to Swift inside `MurmurSilver`
-      framework as `SilverMetricsService` conforming to
+- [ ] ECG Metrics pipeline ported to Swift inside `MurmurMetrics`
+      framework as `ECGMetricsService` conforming to
       `FindingProducer`; output schema versioned independently of
       the implementation.
-- [ ] `SilverMetricsPanel` view, gated; locked variant sells the
+- [ ] `ECGMetricsPanel` view, gated; locked variant sells the
       feature with bullet list + price + Buy / Restore actions.
 - [ ] StoreKit testing — local `.storekit` config file for offline
       development; App Store sandbox tester accounts for end-to-end
@@ -633,7 +631,7 @@ RUO framing before submitting.
 - [ ] `VTDetectionService` inside `MurmurInference` framework —
       sliding-window inference over a `Channel`, output aligned to
       recording time. Conforms to `FindingProducer`. Same gate
-      pattern as Silver and Annotation.
+      pattern as ECG Metrics and Annotation.
 - [ ] Findings produced by the model surface in the existing
       `FindingsPanel` with `source = "murmur.vtdetect"` so the
       disposition workflow applies uniformly.
@@ -705,7 +703,7 @@ day one.
 - **Analytics:** stay off-device. Customer-side telemetry is
   explicitly out of scope — it would void the privacy-policy claim of
   "no data collection."
-- **Schema migrations:** Silver Metrics output, Annotation Authoring
+- **Schema migrations:** ECG Metrics output, Annotation Authoring
   output, and VT Detection output each get their own `schema_version`.
   Old findings re-loaded against new app versions must still render.
 - **Community contributions:** the public viewer repo will start
@@ -745,7 +743,7 @@ IAP roadmap (repo re-publication) is complete.
   GitHub-release integration auto-mints a DOI for every tagged
   release; no peer review, but a permanent citation anchor. Stand
   this up immediately after v1.0 ships. JOSS (Journal of Open Source
-  Software) paper comes later, once Silver IAP is live — paper
+  Software) paper comes later, once ECG Metrics IAP is live — paper
   covers MurmurCore (the free, open framework); IAPs noted as App
   Store extensions. SoftwareX is a fallback if JOSS rejects a
   partially-paid tool.
@@ -774,8 +772,8 @@ automatically fixes attribution at the source.
 |---|---|---|
 | **MurmurCore** (free, open source) | Tool only | Murmur Studio + Zenodo release DOI |
 | **Annotation Authoring IAP** | Tool only | Murmur Studio + release DOI (no method paper — IAP wraps editing UX, not a published algorithm) |
-| **Silver IAP** | Tool + method | Murmur Studio release DOI **plus** the modular-feature paper |
-| **VT IAP** | Method + production implementation | SE-ResLSTM paper **plus** Murmur Studio + the specific VT model version DOI |
+| **ECG Metrics IAP** | Tool only | Murmur Studio release DOI (no separate method paper — measures are community-standard) |
+| **VT IAP** | Method + production implementation | Murmur Studio + the specific VT model version DOI |
 
 ### Phase A — Zenodo DOIs for MurmurCore
 
@@ -794,12 +792,12 @@ automatically fixes attribution at the source.
       panel — emits BibTeX (primary) and RIS (secondary) for the
       currently-loaded state.
 - [ ] Context-aware generation: inspect what's loaded — MurmurCore
-      only? Silver report visible? VT findings present, and at which
+      only? ECG Metrics report visible? VT findings present, and at which
       model version? — and emit the corresponding entries per the
       routing table above.
 - [ ] Tie generation to the Zenodo DOIs from Phase A; don't ship this
       before the DOIs exist or there'd be nothing valid to emit.
-- [ ] Likely ships alongside the Silver IAP (the first version with
+- [ ] Likely ships alongside the ECG Metrics IAP (the first version with
       multiple citation entries to merge).
 
 ### Phase C — Versioned VT model manifests (reproducibility)
@@ -824,7 +822,7 @@ after.
 
 ### Phase D — JOSS paper (later)
 
-- [ ] Draft a JOSS submission for MurmurCore once Silver IAP is in
+- [ ] Draft a JOSS submission for MurmurCore once ECG Metrics IAP is in
       the wild and at least one external user has cited Murmur via
       Phase B's menu. Use real adoption data as a "Statement of
       Need."

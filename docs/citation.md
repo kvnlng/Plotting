@@ -10,9 +10,9 @@ each paid extension carries its own citation surface so attribution
 routes back to the right artifact.
 
 The in-app **Copy citation** action (App menu, planned for the v1.1
-release alongside Silver Layer Metrics) emits the appropriate
-combination for the work currently loaded — researchers cite whatever
-the tool hands them, so the routing below is enforced automatically.
+release alongside ECG Metrics) emits the appropriate combination for
+the work currently loaded — researchers cite whatever the tool hands
+them, so the routing below is enforced automatically.
 
 ## Routing by tier
 
@@ -20,7 +20,7 @@ the tool hands them, so the routing below is enforced automatically.
 |---|---|
 | **Free viewer only** (MurmurCore — file import, finding display, filter chips, viewport, disposition workflow) | Murmur Studio + the Zenodo release DOI |
 | **Annotation Authoring IAP** (manual finding create / edit / delete) | Murmur Studio + Zenodo release DOI. No method paper — the IAP wraps editing UX, not a published algorithm. |
-| **Silver Layer Metrics IAP** (cardiopulmonary telemetry feature extraction) | Murmur Studio + Zenodo release DOI **plus** the modular-feature method paper (citation TBD until publication). |
+| **ECG Metrics IAP** (standard ECG analytic measures — HRV, intervals, RR-interval statistics) | Murmur Studio + Zenodo release DOI. No separate method paper — measures are community-standard. |
 | **VT/VF Detection IAP** (SE-ResLSTM inference) | SE-ResLSTM paper (citation TBD until publication) **plus** Murmur Studio + the specific VT model version DOI. Model version is encoded in each finding's metadata so screenshots in your paper self-document provenance. |
 
 ## BibTeX (free viewer)

@@ -26,7 +26,7 @@ the free viewer already does.
 |---|---|---|
 | **Murmur Studio** (free, MIT) | WFDB import, finding display, filter chips, viewport, disposition workflow | This repo |
 | **Annotation Authoring IAP** (paid) | Manual finding create / edit / delete | Private framework (paid users only) |
-| **Silver Layer Metrics IAP** (paid) | Cardiopulmonary feature extraction (modular Silver-layer features from author's paper) | Private framework |
+| **ECG Metrics IAP** (paid) | Standard ECG analytic measures — HRV (RMSSD, SDNN, pNN50), RR-interval statistics, intervals, frequency-domain HRV | Private framework |
 | **VT/VF Detection IAP** (paid) | On-device SE-ResLSTM inference, RUO — research use only | Private framework + remote model updates |
 
 The split is *source distribution*, not *binary distribution*: the App
@@ -137,7 +137,7 @@ tier-aware citation routing for the paid extensions.
 
 The free viewer is MIT. See [`LICENSE`](LICENSE).
 
-The paid extension frameworks (Annotation Authoring, Silver Layer
-Metrics, VT Detection) are proprietary and distributed exclusively
-via the App Store. Their licenses are part of the App Store EULA;
-the source is not public.
+The paid extension frameworks (Annotation Authoring, ECG Metrics,
+VT Detection) are proprietary and distributed exclusively via the
+App Store. Their licenses are part of the App Store EULA; the
+source is not public.

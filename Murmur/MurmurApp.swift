@@ -50,7 +50,7 @@ struct MurmurApp: App {
                 Button("Annotation Schema")   { URLLauncher.shared.open(HelpURL.annotationSchema) }
                 Divider()
                 // Citation routing: until the paid IAPs ship, both menu
-                // items emit the free-viewer entry only. When VT / Silver
+                // items emit the free-viewer entry only. When VT / Metrics
                 // land, this picks up tier-aware multi-entry citation per
                 // ROADMAP "Citation routing".
                 Button("Copy Citation (BibTeX)") {

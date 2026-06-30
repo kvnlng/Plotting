@@ -4,7 +4,7 @@
 #
 # IMPORTANT: this entry covers the FREE, open-source viewer
 # (MurmurCore + the App Store app's free baseline). Paid extension
-# frameworks (Annotation Authoring, Silver Layer Metrics, VT Detection)
+# frameworks (Annotation Authoring, ECG Metrics, VT Detection)
 # are cited separately by routing through the in-app "Copy citation"
 # action — see docs/citation.md.
 #
@@ -21,8 +21,9 @@ abstract: >-
   Renders ECG and multi-rate telemetry on a Metal-backed paper canvas
   alongside upstream-produced findings, with analyst disposition
   workflows (confirm / dismiss / reset). Optional paid extensions on
-  the App Store add annotation authoring, Silver-layer cardiopulmonary
-  feature extraction, and VT/VF detection (research use only).
+  the App Store add annotation authoring, standard ECG analytic
+  measures (HRV, RR-interval statistics, intervals), and VT/VF
+  detection (research use only).
 type: software
 license: MIT
 repository-code: "https://github.com/kvnlng/Murmur"

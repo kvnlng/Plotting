@@ -3359,7 +3359,7 @@ struct PurchaseStoreTests {
     @Test("Product IDs match the registered App Store Connect identifiers")
     func productIDsStable() {
         #expect(PurchaseStore.ProductID.annotationAuthoring.rawValue == "com.kevinlong.murmur.annotationauthoring")
-        #expect(PurchaseStore.ProductID.silverMetrics.rawValue == "com.kevinlong.murmur.silvermetrics")
+        #expect(PurchaseStore.ProductID.ecgMetrics.rawValue == "com.kevinlong.murmur.metrics")
         #expect(PurchaseStore.ProductID.vtDetection.rawValue == "com.kevinlong.murmur.vtdetection")
         #expect(PurchaseStore.ProductID.allCases.count == 3)
     }
@@ -3367,7 +3367,7 @@ struct PurchaseStoreTests {
     @Test("requiredProduct maps producer IDs to their gating IAP; free producers return nil")
     func producerToProductMapping() {
         #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.annotation") == .annotationAuthoring)
-        #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.silver") == .silverMetrics)
+        #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.metrics") == .ecgMetrics)
         #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.vtdetect") == .vtDetection)
         #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.synthetic") == nil)
         #expect(PurchaseStore.requiredProduct(forProducerID: "anything.else") == nil)
@@ -3396,7 +3396,7 @@ struct PurchaseStoreTests {
     @MainActor
     func canRunPaidWithoutEntitlement() {
         let store = PurchaseStore()
-        #expect(!store.canRun(producerID: "murmur.silver"))
+        #expect(!store.canRun(producerID: "murmur.metrics"))
         #expect(!store.canRun(producerID: "murmur.vtdetect"))
         #expect(!store.canRun(producerID: "murmur.annotation"))
     }
@@ -3405,8 +3405,8 @@ struct PurchaseStoreTests {
     @MainActor
     func canRunPaidWithEntitlement() {
         let store = PurchaseStore()
-        store._setOwnedForTesting([.silverMetrics])
-        #expect(store.canRun(producerID: "murmur.silver"))
+        store._setOwnedForTesting([.ecgMetrics])
+        #expect(store.canRun(producerID: "murmur.metrics"))
         // Other paid producers still gated.
         #expect(!store.canRun(producerID: "murmur.vtdetect"))
         #expect(!store.canRun(producerID: "murmur.annotation"))
@@ -3418,7 +3418,7 @@ struct PurchaseStoreTests {
         let store = PurchaseStore()
         store._setOwnedForTesting([.annotationAuthoring])
         #expect(store.owns(.annotationAuthoring))
-        #expect(!store.owns(.silverMetrics))
+        #expect(!store.owns(.ecgMetrics))
         #expect(!store.owns(.vtDetection))
     }
 }

@@ -75,7 +75,7 @@ struct ProducersPanel: View {
                 ContentUnavailableView(
                     "No producers registered",
                     systemImage: "wand.and.stars",
-                    description: Text("Install an extension (Annotation Authoring, Silver Layer Metrics, VT Detection) to unlock producers.")
+                    description: Text("Install an extension (Annotation Authoring, ECG Metrics, VT Detection) to unlock producers.")
                 )
                 .frame(maxWidth: .infinity)
             } else {

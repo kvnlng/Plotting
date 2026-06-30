@@ -3,10 +3,10 @@
 //  MurmurCore
 //
 //  Entitlement state for the three planned in-app purchases that gate
-//  the paid extension frameworks (Annotation Authoring, Silver Layer
-//  Metrics, VT Detection). The free viewer + the synthetic test
-//  producer never need to consult this store — `canRun(producerID:)`
-//  returns true for free producers by design.
+//  the paid extension frameworks (Annotation Authoring, ECG Metrics,
+//  VT Detection). The free viewer + the synthetic test producer never
+//  need to consult this store — `canRun(producerID:)` returns true for
+//  free producers by design.
 //
 //  Phase 1 (StoreKit 2): products fetched via `Product.products(for:)`
 //  on init; ownership tracked via `Transaction.currentEntitlements`
@@ -16,7 +16,7 @@
 //  transactions per Apple's sample-code pattern.
 //
 //  Surface is `public` so the paid framework targets (MurmurAnnotation,
-//  MurmurSilver, MurmurInference — pulling MurmurCore as an SPM dep)
+//  MurmurMetrics, MurmurInference — pulling MurmurCore as an SPM dep)
 //  can call `PurchaseStore.shared.owns(...)` from their own bundles.
 //
 
@@ -40,7 +40,7 @@ public final class PurchaseStore {
     /// IAP roadmap submits — `com.kevinlong.murmur.<feature>`.
     public enum ProductID: String, CaseIterable, Sendable {
         case annotationAuthoring = "com.kevinlong.murmur.annotationauthoring"
-        case silverMetrics       = "com.kevinlong.murmur.silvermetrics"
+        case ecgMetrics          = "com.kevinlong.murmur.metrics"
         case vtDetection         = "com.kevinlong.murmur.vtdetection"
     }
 
@@ -217,7 +217,7 @@ public final class PurchaseStore {
     public nonisolated static func requiredProduct(forProducerID producerID: String) -> ProductID? {
         switch producerID {
         case "murmur.annotation":  return .annotationAuthoring
-        case "murmur.silver":      return .silverMetrics
+        case "murmur.metrics":     return .ecgMetrics
         case "murmur.vtdetect":    return .vtDetection
         default:                   return nil   // free / baseline producer
         }

@@ -13,7 +13,7 @@
 //  copy-pasteable and obviously needs the value replaced.
 //
 //  Scope is currently the free viewer only. Citation routing for the
-//  paid IAPs (Silver, VT) is deferred until those frameworks ship —
+//  paid IAPs (Metrics, VT) is deferred until those frameworks ship —
 //  see ROADMAP.md "Citation infrastructure → Routing".
 //
 

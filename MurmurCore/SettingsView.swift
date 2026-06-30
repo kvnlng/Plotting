@@ -87,7 +87,7 @@ private struct PurchasesSettingsTab: View {
     private func displayName(for id: PurchaseStore.ProductID) -> String {
         switch id {
         case .annotationAuthoring: return "Annotation Authoring"
-        case .silverMetrics:       return "Silver Layer Metrics"
+        case .ecgMetrics:          return "ECG Metrics"
         case .vtDetection:         return "VT/VF Detection (RUO)"
         }
     }

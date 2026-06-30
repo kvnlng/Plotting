@@ -7,7 +7,7 @@
 //  so anything it touches has to be `public` — which makes this
 //  file the load-bearing contract test for the Phase B2 public-API
 //  audit. If a paid extension framework (`MurmurAnnotation`,
-//  `MurmurSilver`, `MurmurInference`) can't reach a symbol from
+//  `MurmurMetrics`, `MurmurInference`) can't reach a symbol from
 //  here, it can't reach it from its own bundle either.
 //
 //  The xcodeproj target `MurmurTests` retains `@testable import`
@@ -63,7 +63,7 @@ struct AnnotationTests {
             label: "Atrial fib",
             confidence: 0.87,
             severity: .warning,
-            source: "murmur.silver",
+            source: "murmur.metrics",
             note: "ectopic burst",
             lead: "II",
             evidenceContextSeconds: 30
@@ -638,7 +638,7 @@ struct PurchaseStoreTests {
     @Test("ProductID raw values are stable")
     func productIDRawValues() {
         #expect(PurchaseStore.ProductID.annotationAuthoring.rawValue == "com.kevinlong.murmur.annotationauthoring")
-        #expect(PurchaseStore.ProductID.silverMetrics.rawValue == "com.kevinlong.murmur.silvermetrics")
+        #expect(PurchaseStore.ProductID.ecgMetrics.rawValue == "com.kevinlong.murmur.metrics")
         #expect(PurchaseStore.ProductID.vtDetection.rawValue == "com.kevinlong.murmur.vtdetection")
     }
 
@@ -656,7 +656,7 @@ struct PurchaseStoreTests {
     @Test("requiredProduct maps the three known paid producers")
     func requiredProductPaid() {
         #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.annotation") == .annotationAuthoring)
-        #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.silver") == .silverMetrics)
+        #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.metrics") == .ecgMetrics)
         #expect(PurchaseStore.requiredProduct(forProducerID: "murmur.vtdetect") == .vtDetection)
     }
 
@@ -679,7 +679,7 @@ struct PurchaseStoreTests {
     @Test("canRun is false for paid producers when entitlement absent")
     func canRunPaidLocked() {
         let store = PurchaseStore()
-        #expect(store.canRun(producerID: "murmur.silver") == false)
+        #expect(store.canRun(producerID: "murmur.metrics") == false)
         #expect(store.canRun(producerID: "murmur.annotation") == false)
         #expect(store.canRun(producerID: "murmur.vtdetect") == false)
     }
@@ -688,19 +688,19 @@ struct PurchaseStoreTests {
     @Test("canRun flips to true once the gating entitlement is set")
     func canRunPaidUnlocked() {
         let store = PurchaseStore()
-        store._setOwnedForTesting([.silverMetrics])
-        #expect(store.canRun(producerID: "murmur.silver") == true)
+        store._setOwnedForTesting([.ecgMetrics])
+        #expect(store.canRun(producerID: "murmur.metrics") == true)
         #expect(store.canRun(producerID: "murmur.annotation") == false)
         #expect(store.canRun(producerID: "murmur.vtdetect") == false)
-        #expect(store.owns(.silverMetrics) == true)
+        #expect(store.owns(.ecgMetrics) == true)
         #expect(store.owns(.annotationAuthoring) == false)
     }
 
     @Test("Multiple entitlements set independently")
     func multipleEntitlements() {
         let store = PurchaseStore()
-        store._setOwnedForTesting([.silverMetrics, .vtDetection])
-        #expect(store.canRun(producerID: "murmur.silver") == true)
+        store._setOwnedForTesting([.ecgMetrics, .vtDetection])
+        #expect(store.canRun(producerID: "murmur.metrics") == true)
         #expect(store.canRun(producerID: "murmur.vtdetect") == true)
         #expect(store.canRun(producerID: "murmur.annotation") == false)
     }
@@ -714,7 +714,7 @@ struct PurchaseStoreTests {
         // productNotLoaded rather than crashing or hanging.
         let store = PurchaseStore()
         do {
-            _ = try await store.purchase(.silverMetrics)
+            _ = try await store.purchase(.ecgMetrics)
             Issue.record("Expected purchase to throw productNotLoaded")
         } catch let error as PurchaseStore.PurchaseError {
             if case .productNotLoaded = error {
