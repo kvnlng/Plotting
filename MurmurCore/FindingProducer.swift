@@ -34,12 +34,14 @@
 //     `PurchaseStore` entitlements; the registry itself is unaware of
 //     entitlements.
 //
-//  TODO (when MurmurAnnotation / MurmurSilver / MurmurInference framework
-//  targets land): promote this protocol and its supporting types to
-//  `public`. Doing so requires a broader audit since `Annotation`,
-//  `Recording`, and `Channel` are currently internal — they'll need to
-//  become public alongside this protocol so out-of-module conformers
-//  can construct findings against them.
+//  Public surface (audited in B2 of the open-core SPM split): the
+//  protocol, `ProducerEvent`, `ProgressUpdate`, and `ProducerRegistry`
+//  are all `public`, along with `Annotation`, `Recording`, `Channel`,
+//  and `PurchaseStore.ProductID`. That's the conservative cut that
+//  lets an out-of-module conformer (paid framework or third-party)
+//  construct findings and register them. Sample-reader internals
+//  (MappedSampleAccess, ChannelView, etc.) remain internal until a
+//  paid framework demonstrates a need.
 //
 
 import Foundation
@@ -54,7 +56,7 @@ import Foundation
 ///
 /// Conformances should be value types (`struct`) or actors, not classes,
 /// so producers stay `Sendable` for cross-task hand-off.
-protocol FindingProducer: Sendable {
+public protocol FindingProducer: Sendable {
     /// Stable identifier — emitted as `annotations[].source` so a
     /// finding can be traced back to the producer that generated it.
     /// Also the registry key, so duplicates clobber. Convention:
@@ -88,7 +90,7 @@ protocol FindingProducer: Sendable {
 /// One step in a producer's output stream. Producers emit a mix of
 /// progress updates and finding batches; the stream completes when the
 /// producer has nothing more to say.
-enum ProducerEvent: Sendable {
+public enum ProducerEvent: Sendable {
     /// Progress report, suitable for driving a determinate progress bar
     /// or a "Scanning… 32%" label. Producers should emit at least one
     /// `.progress` before the first `.findings` so the UI can show a
@@ -110,20 +112,20 @@ enum ProducerEvent: Sendable {
 }
 
 /// Snapshot of producer progress.
-struct ProgressUpdate: Sendable, Equatable {
+public struct ProgressUpdate: Sendable, Equatable {
     /// 0.0...1.0. Monotonically non-decreasing across a single run.
     /// Producers that can't estimate completion should still emit
     /// occasional updates with `fractionComplete: 0` so the UI knows
     /// the producer is alive (use the `stage` field to describe what
     /// it's doing).
-    let fractionComplete: Double
+    public let fractionComplete: Double
 
     /// Short, free-form description of what's happening right now.
     /// Examples: "Window 12 / 48", "Loading model weights",
     /// "Scoring channel Lead II". Shown verbatim in the progress UI.
-    let stage: String
+    public let stage: String
 
-    init(fractionComplete: Double, stage: String) {
+    public init(fractionComplete: Double, stage: String) {
         self.fractionComplete = max(0, min(1, fractionComplete))
         self.stage = stage
     }
@@ -137,39 +139,39 @@ struct ProgressUpdate: Sendable, Equatable {
 /// launch. The registry is *entitlement-unaware* — callers that need
 /// to gate by IAP should filter the registry's output against
 /// `PurchaseStore.owns(_:)` themselves.
-actor ProducerRegistry {
+public actor ProducerRegistry {
     /// Shared registry used by the app. Tests should construct their
     /// own instance to keep parallel test runs from clobbering each
     /// other's registrations.
-    static let shared = ProducerRegistry()
+    public static let shared = ProducerRegistry()
 
     private var producers: [String: any FindingProducer] = [:]
 
-    init() {}
+    public init() {}
 
     /// Register `producer`. Replaces any prior registration with the
     /// same `id` — last write wins so frameworks can swap in updated
     /// implementations mid-session (e.g., after a Core ML weights
     /// hot-swap; see VT IAP Phase 4).
-    func register(_ producer: any FindingProducer) {
+    public func register(_ producer: any FindingProducer) {
         producers[producer.id] = producer
     }
 
     /// Unregister the producer with `id`. No-op if absent.
-    func unregister(id: String) {
+    public func unregister(id: String) {
         producers.removeValue(forKey: id)
     }
 
     /// Look up a producer by its `id`. Returns nil if not registered —
     /// callers should handle this gracefully (e.g., the user disabled
     /// the IAP and the framework unregistered itself).
-    func producer(id: String) -> (any FindingProducer)? {
+    public func producer(id: String) -> (any FindingProducer)? {
         producers[id]
     }
 
     /// All currently-registered producers, sorted by `id` for
     /// deterministic UI ordering across launches.
-    func all() -> [any FindingProducer] {
+    public func all() -> [any FindingProducer] {
         producers.values.sorted { $0.id < $1.id }
     }
 }

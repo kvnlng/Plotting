@@ -14,10 +14,9 @@
 //  the App Store Connect product registrations. Until then,
 //  `ownedProductIDs` stays empty in RELEASE and tests pin the mapping.
 //
-//  Public-API audit deferred along with the rest of MurmurCore's
-//  internal types — see FindingProducer.swift TODO. Once the paid
-//  framework targets land, this becomes `public` so they can call
-//  `PurchaseStore.shared.owns(...)` from their own bundles.
+//  Surface is `public` so the paid framework targets (MurmurAnnotation,
+//  MurmurSilver, MurmurInference — pulling MurmurCore as an SPM dep)
+//  can call `PurchaseStore.shared.owns(...)` from their own bundles.
 //
 
 import Foundation
@@ -28,16 +27,16 @@ import Observation
 /// gates) all run on the main actor.
 @MainActor
 @Observable
-final class PurchaseStore {
+public final class PurchaseStore {
 
     /// Shared instance the app uses at runtime. Tests should construct
     /// a fresh `PurchaseStore()` to keep parallel runs isolated.
-    static let shared = PurchaseStore()
+    public static let shared = PurchaseStore()
 
     /// App Store Connect product identifiers. Raw values match what
     /// will be registered in App Store Connect when Phase 1 of the
     /// IAP roadmap submits — `com.kevinlong.murmur.<feature>`.
-    enum ProductID: String, CaseIterable, Sendable {
+    public enum ProductID: String, CaseIterable, Sendable {
         case annotationAuthoring = "com.kevinlong.murmur.annotationauthoring"
         case silverMetrics       = "com.kevinlong.murmur.silvermetrics"
         case vtDetection         = "com.kevinlong.murmur.vtdetection"
@@ -47,12 +46,12 @@ final class PurchaseStore {
     /// transactions resolve. Today this stays empty (Phase 0 stub);
     /// Phase 1 wires Transaction.currentEntitlements + Transaction.updates
     /// into the setter.
-    private(set) var ownedProductIDs: Set<ProductID> = []
+    public private(set) var ownedProductIDs: Set<ProductID> = []
 
-    init() {}
+    public init() {}
 
     /// True when the user currently owns the IAP for `id`.
-    func owns(_ id: ProductID) -> Bool {
+    public func owns(_ id: ProductID) -> Bool {
         ownedProductIDs.contains(id)
     }
 
@@ -67,7 +66,7 @@ final class PurchaseStore {
     /// `nonisolated` because the mapping is a pure static lookup with
     /// no main-actor-isolated state, so callers (including background
     /// tasks and tests) can use it without a hop.
-    nonisolated static func requiredProduct(forProducerID producerID: String) -> ProductID? {
+    public nonisolated static func requiredProduct(forProducerID producerID: String) -> ProductID? {
         switch producerID {
         case "murmur.annotation":  return .annotationAuthoring
         case "murmur.silver":      return .silverMetrics
@@ -81,7 +80,7 @@ final class PurchaseStore {
     /// that list producers (the Producers panel today, future surfaces
     /// later) filter through this so locked producers don't appear
     /// until the corresponding IAP is purchased.
-    func canRun(producerID: String) -> Bool {
+    public func canRun(producerID: String) -> Bool {
         guard let required = Self.requiredProduct(forProducerID: producerID) else {
             return true
         }
@@ -95,7 +94,7 @@ final class PurchaseStore {
     /// Phase 1 will replace this with the real Transaction.updates
     /// listener; today it lets unit tests exercise `canRun` against
     /// arbitrary entitlement states.
-    func _setOwnedForTesting(_ ids: Set<ProductID>) {
+    public func _setOwnedForTesting(_ ids: Set<ProductID>) {
         ownedProductIDs = ids
     }
     #endif

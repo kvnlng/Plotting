@@ -22,34 +22,34 @@ import Foundation
 
 // MARK: - In-memory model
 
-struct Annotation: Codable, Equatable, Sendable, Identifiable {
-    let id: UUID
-    let kind: Kind
-    let sampleIndex: Int64           // resolved start sample (always set after import)
-    let endSampleIndex: Int64?       // resolved end sample for ranges; nil for points
-    let unixMillisStart: Int64?      // original producer-side absolute time, if any
-    let unixMillisEnd: Int64?
-    let category: String             // semantic finding category, e.g. "VF_onset", "PVC"
-    let label: String?               // short display token; falls back to category
-    let confidence: Double?          // 0…1 from the producer model, optional
-    let severity: Severity
-    let source: String               // producer ID, e.g. "vf-onset-detector-v2"
-    let note: String?                // free-form analyst-readable text
-    let lead: String?                // channel/lead label if finding is lead-specific
-    let evidenceContextSeconds: Double?  // viewer-side scroll-into-view hint
+public struct Annotation: Codable, Equatable, Sendable, Identifiable {
+    public let id: UUID
+    public let kind: Kind
+    public let sampleIndex: Int64           // resolved start sample (always set after import)
+    public let endSampleIndex: Int64?       // resolved end sample for ranges; nil for points
+    public let unixMillisStart: Int64?      // original producer-side absolute time, if any
+    public let unixMillisEnd: Int64?
+    public let category: String             // semantic finding category, e.g. "VF_onset", "PVC"
+    public let label: String?               // short display token; falls back to category
+    public let confidence: Double?          // 0…1 from the producer model, optional
+    public let severity: Severity
+    public let source: String               // producer ID, e.g. "vf-onset-detector-v2"
+    public let note: String?                // free-form analyst-readable text
+    public let lead: String?                // channel/lead label if finding is lead-specific
+    public let evidenceContextSeconds: Double?  // viewer-side scroll-into-view hint
 
-    enum Kind: String, Codable, Sendable {
+    public enum Kind: String, Codable, Sendable {
         case point
         case range
     }
 
-    enum Severity: String, Codable, Sendable, CaseIterable, Comparable {
+    public enum Severity: String, Codable, Sendable, CaseIterable, Comparable {
         case info
         case notice
         case warning
         case critical
 
-        var rank: Int {
+        public var rank: Int {
             switch self {
             case .info:     return 0
             case .notice:   return 1
@@ -58,15 +58,15 @@ struct Annotation: Codable, Equatable, Sendable, Identifiable {
             }
         }
 
-        static func < (lhs: Severity, rhs: Severity) -> Bool {
+        public static func < (lhs: Severity, rhs: Severity) -> Bool {
             lhs.rank < rhs.rank
         }
     }
 
-    var displayLabel: String { label ?? category }
+    public var displayLabel: String { label ?? category }
 
     /// The end sample for rendering purposes — equals `sampleIndex` for point events.
-    var renderEndSample: Int64 { endSampleIndex ?? sampleIndex }
+    public var renderEndSample: Int64 { endSampleIndex ?? sampleIndex }
 
     /// True when this annotation should render on the channel named
     /// `channelName`. Lead-less annotations (the common case for
@@ -75,7 +75,7 @@ struct Annotation: Codable, Equatable, Sendable, Identifiable {
     /// normalizes equal to the `lead` field. Normalization trims
     /// whitespace and lowercases so producer outputs like `" II "`
     /// or `"ii"` match a channel named `"II"`.
-    func matchesChannel(_ channelName: String) -> Bool {
+    public func matchesChannel(_ channelName: String) -> Bool {
         guard let raw = lead else { return true }
         let normalized = raw.trimmingCharacters(in: .whitespaces).lowercased()
         guard !normalized.isEmpty else { return true }
@@ -118,7 +118,7 @@ struct Annotation: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
-    init(
+    public init(
         id: UUID = UUID(),
         kind: Kind,
         sampleIndex: Int64,

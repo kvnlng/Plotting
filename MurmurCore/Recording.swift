@@ -11,25 +11,25 @@ import Foundation
 
 // MARK: - Manifest model
 
-struct Recording: Codable, Equatable, Sendable {
-    let version: Int
-    let id: UUID
-    let device: String
-    let createdAt: Date
-    let sourceFileName: String
-    let channels: [Channel]
-    let annotations: [Annotation]
+public struct Recording: Codable, Equatable, Sendable {
+    public let version: Int
+    public let id: UUID
+    public let device: String
+    public let createdAt: Date
+    public let sourceFileName: String
+    public let channels: [Channel]
+    public let annotations: [Annotation]
     /// `#`-prefixed lines from the source `.hea`. Immutable — they belong to
     /// the WFDB record, not to our analyst-editable notes.
-    let headerComments: [String]
+    public let headerComments: [String]
     /// Name of the analyst-editable Markdown file in the recording bundle.
     /// `nil` when there are no notes (neither the source folder shipped one
     /// nor the analyst has saved anything yet).
-    let notesFileName: String?
+    public let notesFileName: String?
 
-    static let currentVersion = 1
+    public static let currentVersion = 1
 
-    init(
+    public init(
         version: Int,
         id: UUID,
         device: String,
@@ -57,7 +57,7 @@ struct Recording: Codable, Equatable, Sendable {
     ///   • Manifest with `[WFDBAnnotation]` shape → adapted to point-Annotations
     ///   • `headerComments` / `notesFileName` default when absent so pre-context
     ///     manifests keep loading.
-    init(from decoder: Decoder) throws {
+    public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.version = try c.decode(Int.self, forKey: .version)
         self.id = try c.decode(UUID.self, forKey: .id)
@@ -79,25 +79,45 @@ struct Recording: Codable, Equatable, Sendable {
     }
 }
 
-struct Channel: Codable, Equatable, Identifiable, Sendable {
-    let id: UUID
-    let name: String
-    let unit: String
-    let sampleRate: Double           // Hz
-    let startTimeUnixMS: Int64       // UTC milliseconds since epoch
-    let sampleCount: Int64
-    let storageFileName: String      // Path relative to the recording directory.
-    let pyramid: [PyramidLevel]
+public struct Channel: Codable, Equatable, Identifiable, Sendable {
+    public let id: UUID
+    public let name: String
+    public let unit: String
+    public let sampleRate: Double           // Hz
+    public let startTimeUnixMS: Int64       // UTC milliseconds since epoch
+    public let sampleCount: Int64
+    public let storageFileName: String      // Path relative to the recording directory.
+    public let pyramid: [PyramidLevel]
 
-    var startDate: Date {
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        unit: String,
+        sampleRate: Double,
+        startTimeUnixMS: Int64,
+        sampleCount: Int64,
+        storageFileName: String,
+        pyramid: [PyramidLevel] = []
+    ) {
+        self.id = id
+        self.name = name
+        self.unit = unit
+        self.sampleRate = sampleRate
+        self.startTimeUnixMS = startTimeUnixMS
+        self.sampleCount = sampleCount
+        self.storageFileName = storageFileName
+        self.pyramid = pyramid
+    }
+
+    public var startDate: Date {
         Date(timeIntervalSince1970: Double(startTimeUnixMS) / 1000.0)
     }
 
-    var durationSeconds: Double {
+    public var durationSeconds: Double {
         Double(sampleCount) / sampleRate
     }
 
-    func sampleIndex(for unixMS: Int64) -> Int64 {
+    public func sampleIndex(for unixMS: Int64) -> Int64 {
         Int64(Double(unixMS - startTimeUnixMS) * sampleRate / 1000.0)
     }
 
@@ -106,15 +126,21 @@ struct Channel: Codable, Equatable, Identifiable, Sendable {
     /// strip instead of on the Metal ECG canvas. The threshold (5 Hz) sits
     /// well above the 1/60 Hz Silver feature store grain and well below
     /// the slowest ECG / pressure waveforms.
-    var isTrendChannel: Bool {
+    public var isTrendChannel: Bool {
         sampleRate < 5
     }
 }
 
-struct PyramidLevel: Codable, Equatable, Sendable {
-    let binSamples: Int              // Raw samples per bin (10, 100, 1000, …)
-    let binCount: Int64
-    let storageFileName: String      // Packed (min, max) Float64 pairs.
+public struct PyramidLevel: Codable, Equatable, Sendable {
+    public let binSamples: Int              // Raw samples per bin (10, 100, 1000, …)
+    public let binCount: Int64
+    public let storageFileName: String      // Packed (min, max) Float64 pairs.
+
+    public init(binSamples: Int, binCount: Int64, storageFileName: String) {
+        self.binSamples = binSamples
+        self.binCount = binCount
+        self.storageFileName = storageFileName
+    }
 }
 
 // MARK: - Import result types
