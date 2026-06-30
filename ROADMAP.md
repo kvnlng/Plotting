@@ -564,15 +564,16 @@ the right architectural shape.
 - [x] Stand up Phase A scaffolding for Citation infrastructure —
       `CITATION.cff` + `.zenodo.json` committed at repo root,
       `CitationBuilder.swift` groundwork in MurmurCore.
-- [ ] Subdivide MurmurCore further: extract `MurmurAnnotation`,
-      `MurmurSilver`, `MurmurInference` framework targets. Empty
-      placeholders are fine until Phases 1–3 fill them in.
-- [ ] Set up the private `Murmur-Extensions` repo and confirm SPM
-      resolution from the app target into it via Xcode Cloud.
-- [ ] Enable the GitHub→Zenodo OAuth integration at
-      `zenodo.org/account/settings/github/` and flip the toggle on
-      `kvnlng/Murmur`. Then cut the first GitHub Release (from the
-      already-pushed `v1.2.0` tag) so Zenodo mints the canonical DOI.
+- [x] Set up the private `Murmur-Extensions` repo and confirm SPM
+      resolution from the app target into it via Xcode Cloud. The
+      three paid frameworks ship as SPM library products
+      (`MurmurAnnotation`, `MurmurSilver`, `MurmurInference`) from
+      `kvnlng/Murmur-Extensions` v0.1.0 — supersedes the earlier
+      plan to extract them as in-project framework targets.
+- [x] Enable the GitHub→Zenodo OAuth integration and cut the first
+      GitHub Release so Zenodo mints the canonical DOI. Concept DOI
+      `10.5281/zenodo.21077528`, v1.2.1 version DOI
+      `10.5281/zenodo.21077529`, minted 2026-06-30.
 
 ### Phase 1 — StoreKit foundation + Silver Metrics IAP
 
