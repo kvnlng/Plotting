@@ -89,7 +89,10 @@ struct AlarmStrip: View {
             }
             .contentShape(Rectangle())
             .onTapGesture { location in
-                let fraction = max(0, min(1, Double(location.x / max(geo.size.width, 1))))
+                let fraction = RecordingViewport.tapFraction(
+                    x: Double(location.x),
+                    width: Double(geo.size.width)
+                )
                 viewport.animateJump(toFraction: fraction)
             }
         }

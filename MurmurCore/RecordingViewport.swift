@@ -161,6 +161,26 @@ final class RecordingViewport {
         return min(max(0, proposed), maxStart)
     }
 
+    // MARK: - Coordinate → fraction helper
+
+    /// Convert a tap location's `x` coordinate into a normalized fraction
+    /// in `[0, 1]` of the tap surface's `width`. Callers pipe the result
+    /// through `animateJump(toFraction:)` or `jump(toFraction:)`.
+    ///
+    /// Extracted as a testable pure function because a subtle clamp or
+    /// off-by-one bug here silently no-ops the entire tap-to-jump gesture
+    /// (Build 37 lane-click regression). Any tap-eligible strip that maps
+    /// a coordinate to a fraction should route through this rather than
+    /// reimplementing the math inline.
+    ///
+    /// `nonisolated` because the computation is a pure `Double` transform
+    /// with no viewport-state access, so SwiftUI hit-test callbacks (which
+    /// aren't main-actor-guaranteed) can call it without a hop.
+    nonisolated static func tapFraction(x: Double, width: Double) -> Double {
+        let safeWidth = max(width, 1)
+        return max(0.0, min(1.0, x / safeWidth))
+    }
+
     /// `setStart` used by the animation loop — bypasses the public path so
     /// the animation can advance without cancelling itself.
     private func setStartInternal(_ newStart: Int64) {
