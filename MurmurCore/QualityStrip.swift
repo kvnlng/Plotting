@@ -77,18 +77,19 @@ struct QualityStrip: View {
             heatBody(for: channel)
                 // Identifier is on the heatBody, NOT the outer HStack, so
                 // XCUI clicks the center of the tappable heat band and
-                // produces a meaningful `fraction` for the tap gesture.
-                // Putting the id on the row includes the 110pt label in
-                // the element's frame; on narrow CI windows the row's
-                // centroid lands inside the label (or the first few px of
-                // heatBody), producing fraction≈0, which
-                // `RecordingViewport.animateJump` treats as a no-op when
-                // the viewport is already at start — and the CI test
-                // `testClickingQualityLaneJumpsViewport` times out.
-                // AlarmStrip gets away with the outer-row id because its
-                // visible bars are accessibility sub-elements XCUI targets
-                // directly; QualityStrip's Canvas has no sub-elements.
-                .accessibilityElement(children: .contain)
+                // produces a meaningful `fraction` for the tap gesture
+                // (see Build 37 regression). We use `.combine` — not
+                // `.contain` — because QualityStrip's Canvas has zero
+                // accessibility children: `.contain` would produce an
+                // empty accessibility CONTAINER, which macOS XCUI
+                // reports as "Not hittable" (containers aren't
+                // interactive targets, only their children — but there
+                // aren't any). `.combine` merges the subtree into a
+                // single interactive element XCUI can click directly.
+                // AlarmStrip gets away with `.contain` because its
+                // visible RoundedRectangle bars are real accessibility
+                // sub-elements XCUI can target.
+                .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("quality-lane-\(channel.name)")
         }
     }
