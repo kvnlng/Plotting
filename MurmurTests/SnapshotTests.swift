@@ -190,9 +190,26 @@ final class SnapshotTests: XCTestCase {
 
     func testECGMetricsView_populated() {
         // Alternating 800 / 850 ms intervals produce a stable, easily
-        // hand-checkable report. Keeps the pixel diff meaningful — if
-        // the layout drifts, the digits move.
+        // hand-checkable report. Only 10 beats — below the Task Force
+        // 256-beat minimum, so the "interpret variability with
+        // caution" advisory row renders and is part of this baseline.
         let intervals: [Double] = [800, 850, 800, 850, 800, 850, 800, 850, 800, 850]
+        let report = ECGMetricsService.compute(fromRRIntervalsMs: intervals)
+        let view = ECGMetricsView(report: report)
+            .frame(width: 300)
+            .padding()
+            .background(Color.white)
+        assertSnapshot(of: render(view, size: CGSize(width: 340, height: 320)), as: .image(precision: 0.98, perceptualPrecision: 0.96))
+    }
+
+    func testECGMetricsView_populated_adequate() {
+        // 300 alternating intervals — comfortably above the Task Force
+        // 256-beat minimum, so the advisory row is SUPPRESSED. Guards
+        // the boundary in the opposite direction from
+        // `testECGMetricsView_populated` (which is intentionally
+        // below the minimum).
+        var intervals = [Double]()
+        for i in 0..<300 { intervals.append(i.isMultiple(of: 2) ? 800 : 850) }
         let report = ECGMetricsService.compute(fromRRIntervalsMs: intervals)
         let view = ECGMetricsView(report: report)
             .frame(width: 300)
