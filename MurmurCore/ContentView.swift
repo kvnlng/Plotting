@@ -66,6 +66,33 @@ public struct ContentView: View {
             loadUITestSampleIfRequested()
             #endif
         }
+        // Sync the process-wide `CurrentRecordingContext` whenever the
+        // main window's state changes. Auxiliary windows (ECG Metrics,
+        // etc.) observe that context; centralising the sync here keeps
+        // every `state = .directView(...)` call site in this file
+        // ignorant of who's listening downstream.
+        .onChange(of: currentDirectoryKey, initial: true) { _, _ in
+            syncCurrentRecordingContext()
+        }
+    }
+
+    /// Directory URL when the viewer is showing a recording, `nil`
+    /// otherwise. Used as the `onChange` key so context sync fires
+    /// on every recording-open / close without depending on
+    /// `Recording` being `Equatable` (it isn't).
+    private var currentDirectoryKey: URL? {
+        if case .directView(let dir, _) = state { return dir }
+        return nil
+    }
+
+    /// Push the current `state` into `CurrentRecordingContext.shared`.
+    private func syncCurrentRecordingContext() {
+        switch state {
+        case .directView(let dir, let recording):
+            CurrentRecordingContext.shared.set(recording: recording, directory: dir)
+        case .empty, .browsing:
+            CurrentRecordingContext.shared.clear()
+        }
     }
 
     // MARK: - Shells

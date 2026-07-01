@@ -131,6 +131,36 @@ public struct Channel: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Beat annotations
+
+public extension Recording {
+
+    /// MIT-BIH "N" label — Normal sinus beat. Kept as a named
+    /// constant so callers can key against it explicitly rather than
+    /// literal-matching a magic string.
+    static var normalBeatLabel: String { "N" }
+
+    /// Sorted sample-indices of Normal beats from any WFDB `.atr`
+    /// annotations attached to this recording. Empty when no beat
+    /// data is present. Filters strictly to the MIT-BIH "N" label —
+    /// the classical NN-interval convention for HRV analysis (Task
+    /// Force 1996). Other beat classes (V / F / a / …) are excluded
+    /// so downstream HRV analytics see only Normal-to-Normal
+    /// intervals.
+    ///
+    /// Data selection only — no arithmetic on measurement values.
+    /// The result is a `[Int64]` of raw sample positions; downstream
+    /// analytics (e.g. the ECG Metrics paid framework) own the
+    /// interval math and everything derived from it.
+    func normalBeatSampleIndices() -> [Int64] {
+        annotations
+            .filter { $0.source.hasPrefix("wfdb.atr") }
+            .filter { ($0.label ?? "") == Self.normalBeatLabel }
+            .map(\.sampleIndex)
+            .sorted()
+    }
+}
+
 public struct PyramidLevel: Codable, Equatable, Sendable {
     public let binSamples: Int              // Raw samples per bin (10, 100, 1000, …)
     public let binCount: Int64

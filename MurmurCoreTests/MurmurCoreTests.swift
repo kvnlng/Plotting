@@ -834,3 +834,156 @@ private func makeFakeRecording() -> Recording {
         channels: [channel]
     )
 }
+
+// MARK: - Recording.normalBeatSampleIndices()
+
+@Suite("Recording.normalBeatSampleIndices — Normal-beat filter + sort")
+struct RecordingBeatExtractionTests {
+
+    /// Build an Annotation carrying the fields the beat filter cares
+    /// about (source + label + sampleIndex); everything else defaults.
+    private func beat(_ sampleIndex: Int64, label: String, source: String = "wfdb.atr") -> Annotation {
+        Annotation(
+            kind: .point,
+            sampleIndex: sampleIndex,
+            category: "beat",
+            label: label,
+            source: source
+        )
+    }
+
+    private func recording(with annotations: [Annotation]) -> Recording {
+        let channel = Channel(
+            name: "II",
+            unit: "mV",
+            sampleRate: 250,
+            startTimeUnixMS: 0,
+            sampleCount: 2500,
+            storageFileName: "II.bin"
+        )
+        return Recording(
+            version: Recording.currentVersion,
+            id: UUID(),
+            device: "TestRig",
+            createdAt: Date(timeIntervalSince1970: 0),
+            sourceFileName: "rec.hea",
+            channels: [channel],
+            annotations: annotations
+        )
+    }
+
+    @Test("Includes N beats from wfdb.atr in sorted order")
+    func normalBeatsAreCollected() {
+        let r = recording(with: [
+            beat(200, label: "N"),
+            beat(400, label: "N"),
+            beat(600, label: "N"),
+        ])
+        #expect(r.normalBeatSampleIndices() == [200, 400, 600])
+    }
+
+    @Test("Excludes non-Normal beat labels (V, F, /, a, etc.)")
+    func abnormalBeatsExcluded() {
+        let r = recording(with: [
+            beat(100, label: "N"),
+            beat(150, label: "V"),   // PVC — excluded from NN intervals
+            beat(200, label: "F"),   // fusion — excluded
+            beat(250, label: "/"),   // paced — excluded
+            beat(300, label: "N"),
+        ])
+        #expect(r.normalBeatSampleIndices() == [100, 300])
+    }
+
+    @Test("Excludes annotations from non-wfdb.atr sources even when labelled N")
+    func nonWFDBSourceExcluded() {
+        let r = recording(with: [
+            beat(100, label: "N", source: "wfdb.atr"),
+            beat(200, label: "N", source: "murmur.synthetic"),
+            beat(300, label: "N", source: "vf-detector-v2"),
+            beat(400, label: "N", source: "wfdb.atr.corrected"),  // prefix match ✓
+        ])
+        #expect(r.normalBeatSampleIndices() == [100, 400])
+    }
+
+    @Test("Returns an empty array when there are no annotations at all")
+    func emptyAnnotationsYieldEmpty() {
+        let r = recording(with: [])
+        #expect(r.normalBeatSampleIndices() == [])
+    }
+
+    @Test("Returns an empty array when annotations exist but none match")
+    func noMatchingAnnotations() {
+        let r = recording(with: [
+            beat(100, label: "V"),
+            beat(200, label: "F"),
+        ])
+        #expect(r.normalBeatSampleIndices() == [])
+    }
+
+    @Test("Sorts sample-indices ascending even when input is unsorted")
+    func outputIsSorted() {
+        let r = recording(with: [
+            beat(600, label: "N"),
+            beat(200, label: "N"),
+            beat(400, label: "N"),
+        ])
+        #expect(r.normalBeatSampleIndices() == [200, 400, 600])
+    }
+}
+
+// MARK: - CurrentRecordingContext
+
+@Suite("CurrentRecordingContext — set / clear roundtrips")
+@MainActor
+struct CurrentRecordingContextTests {
+
+    private func makeRecording() -> Recording {
+        let channel = Channel(
+            name: "II", unit: "mV", sampleRate: 250,
+            startTimeUnixMS: 0, sampleCount: 2500, storageFileName: "II.bin"
+        )
+        return Recording(
+            version: Recording.currentVersion,
+            id: UUID(), device: "TestRig",
+            createdAt: Date(timeIntervalSince1970: 0),
+            sourceFileName: "rec.hea", channels: [channel]
+        )
+    }
+
+    @Test("Fresh context reports nothing loaded")
+    func startsEmpty() {
+        let context = CurrentRecordingContext()
+        #expect(context.recording == nil)
+        #expect(context.directory == nil)
+    }
+
+    @Test("set publishes the recording and directory")
+    func setPublishes() {
+        let context = CurrentRecordingContext()
+        let recording = makeRecording()
+        let dir = URL(fileURLWithPath: "/tmp/some-recording")
+        context.set(recording: recording, directory: dir)
+        #expect(context.recording != nil)
+        #expect(context.directory == dir)
+    }
+
+    @Test("clear resets to the empty state after a set")
+    func clearAfterSet() {
+        let context = CurrentRecordingContext()
+        context.set(recording: makeRecording(), directory: URL(fileURLWithPath: "/tmp/x"))
+        context.clear()
+        #expect(context.recording == nil)
+        #expect(context.directory == nil)
+    }
+
+    @Test("Consecutive set calls replace the previously-held recording")
+    func setReplaces() {
+        let context = CurrentRecordingContext()
+        let dir1 = URL(fileURLWithPath: "/tmp/one")
+        let dir2 = URL(fileURLWithPath: "/tmp/two")
+        context.set(recording: makeRecording(), directory: dir1)
+        #expect(context.directory == dir1)
+        context.set(recording: makeRecording(), directory: dir2)
+        #expect(context.directory == dir2)
+    }
+}

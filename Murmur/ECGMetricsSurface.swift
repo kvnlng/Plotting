@@ -32,13 +32,19 @@ struct ECGMetricsSurface: View {
     /// caching, no local mirror. Any StoreKit `Transaction.updates`
     /// tick that flips ownership flips the view too.
     @State private var store = PurchaseStore.shared
+
+    /// Live "which recording is loaded?" from the main window.
+    /// `@Observable` propagation re-runs `body` whenever the main
+    /// window opens or closes a recording.
+    @State private var recordingContext = CurrentRecordingContext.shared
+
     @State private var isPurchasing = false
     @State private var lastPurchaseError: String?
 
     var body: some View {
         Group {
             if store.owns(.ecgMetrics) {
-                ECGMetricsView(report: demoReport)
+                ECGMetricsView(report: reportForCurrentRecording)
             } else {
                 lockedBody
             }
@@ -85,15 +91,22 @@ struct ECGMetricsSurface: View {
         }
     }
 
-    // MARK: - Demo report
+    // MARK: - Report from the currently-loaded recording
 
-    /// First-slice placeholder: a fixed synthetic RR sequence so the
-    /// panel renders end-to-end while the recording-integration
-    /// plumbing lands in a follow-up. Kept as a demo constant rather
-    /// than reaching for the currently-loaded recording so the wire-up
-    /// works even before a file is open.
-    private var demoReport: ECGMetricsReport? {
-        let intervals: [Double] = [820, 810, 830, 800, 815, 830, 820, 795, 810, 825]
+    /// Compute an `ECGMetricsReport` from the current recording's
+    /// Normal-beat annotations. Returns `nil` when nothing is loaded
+    /// or when the recording has fewer than two Normal beats —
+    /// `ECGMetricsView` renders the empty-state row in either case.
+    private var reportForCurrentRecording: ECGMetricsReport? {
+        guard let recording = recordingContext.recording,
+              let sampleRate = recording.channels.first?.sampleRate else {
+            return nil
+        }
+        let beats = recording.normalBeatSampleIndices()
+        guard let intervals = ECGMetricsExtractor.rrIntervalsMs(
+            fromBeatSampleIndices: beats,
+            sampleRate: sampleRate
+        ) else { return nil }
         return ECGMetricsService.compute(fromRRIntervalsMs: intervals)
     }
 }
