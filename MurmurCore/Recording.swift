@@ -155,7 +155,10 @@ public extension Recording {
     func normalBeatSampleIndices() -> [Int64] {
         annotations
             .filter { $0.source.hasPrefix("wfdb.atr") }
-            .filter { ($0.label ?? "") == Self.normalBeatLabel }
+            // The WFDB → Annotation adapter (`init(fromWFDB:)`) puts the
+            // beat symbol into `category`, not `label`. `label` on WFDB
+            // annotations is nil. Filter on `category`.
+            .filter { $0.category == Self.normalBeatLabel }
             .map(\.sampleIndex)
             .sorted()
     }

@@ -840,14 +840,16 @@ private func makeFakeRecording() -> Recording {
 @Suite("Recording.normalBeatSampleIndices — Normal-beat filter + sort")
 struct RecordingBeatExtractionTests {
 
-    /// Build an Annotation carrying the fields the beat filter cares
-    /// about (source + label + sampleIndex); everything else defaults.
+    /// Build an Annotation shaped like WFDB `.atr` output: the beat
+    /// symbol lives in `category` (matching `Annotation.init(fromWFDB:)`
+    /// in production), source is `wfdb.atr`. Test parameter is still
+    /// named `label` for readability of the call sites — it's the
+    /// beat symbol, not the SwiftUI display label.
     private func beat(_ sampleIndex: Int64, label: String, source: String = "wfdb.atr") -> Annotation {
         Annotation(
             kind: .point,
             sampleIndex: sampleIndex,
-            category: "beat",
-            label: label,
+            category: label,
             source: source
         )
     }
