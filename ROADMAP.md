@@ -579,7 +579,7 @@ First paid submission. ECG Metrics is the lowest-scrutiny option (no
 ML, deterministic output, standard analytic measures) so it
 validates the StoreKit wiring before higher-risk IAPs follow.
 
-- [ ] `PurchaseStore` — `@MainActor @Observable` actor. Loads
+- [x] `PurchaseStore` — `@MainActor @Observable` actor. Loads
       `Product.products(for:)` on launch, listens forever to
       `Transaction.updates`, exposes `owns(_:) -> Bool`, `purchase(_:)`,
       and `restore()`. Refuses unverified transactions.
@@ -588,16 +588,32 @@ validates the StoreKit wiring before higher-risk IAPs follow.
       `com.kevinlong.murmur.annotationauthoring` (non-consumable),
       `com.kevinlong.murmur.vtdetection` (subscription or
       non-consumable, TBD).
-- [ ] Restore Purchases UI surface (Apple-mandated).
-- [ ] ECG Metrics pipeline ported to Swift inside `MurmurMetrics`
-      framework as `ECGMetricsService` conforming to
-      `FindingProducer`; output schema versioned independently of
-      the implementation.
-- [ ] `ECGMetricsPanel` view, gated; locked variant sells the
-      feature with bullet list + price + Buy / Restore actions.
-- [ ] StoreKit testing — local `.storekit` config file for offline
-      development; App Store sandbox tester accounts for end-to-end
-      verification before submission.
+- [x] Restore Purchases UI surface (Apple-mandated).
+- [x] ECG Metrics pipeline ported to Swift inside `MurmurMetrics`
+      framework — `ECGMetricsService.compute(fromRRIntervalsMs:)`
+      + `ECGMetricsExtractor.rrIntervalsMs(...)` +
+      `ECGMetricsReport` value type. Not conforming to
+      `FindingProducer` — metrics are recording-wide summaries, not
+      per-sample findings on the waveform, so the FindingProducer
+      contract wasn't the right seam.
+- [x] `ECGMetricsView` + `ECGMetricsLockedView` views ship in
+      `MurmurMetrics`; the App target's `ECGMetricsSurface`
+      orchestrates entitlement gating and reads live recording data
+      via `CurrentRecordingContext`. Window opens via Window menu
+      → "ECG Metrics" (⌘⇧M). Includes Task Force adequacy advisory
+      (< 256 beats warning) and a Copy-to-clipboard button.
+- [x] StoreKit testing — local `.storekit` config file at
+      `Murmur/Murmur.storekit`, excluded from the release bundle
+      via pbxproj `membershipExceptions`. App Store sandbox tester
+      verification pending IAP product-ID registration in ASC.
+
+**Phase 1 status (2026-07-01): substantially complete.** The only
+open item is the App Store Connect side — registering the three
+IAP product IDs and configuring a sandbox tester. Everything
+buildable/testable in code is done. First TestFlight distribution
+kicked off 2026-07-01 to gather tester feedback on the ECG Metrics
+UX; the paid path shows the locked variant until IAP registration
+lands (Buy will error with `productNotLoaded` — expected).
 
 ### Phase 2 — Annotation Authoring IAP
 
